@@ -1,6 +1,6 @@
 [project]
 name = "imagegalleryloader"
-description = "An image gallery node that displays previews for images in the ComfyUI\input folder for easy selection."
+description = "An image gallery node that displays previews for images in the ComfyUI/input folder for easy selection."
 version = "1.0.0"
 license = {file = "LICENSE"} 
 # classifiers = [
