@@ -180,7 +180,10 @@ const LocalImageGalleryNode = {
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
 
-                const displayName = state.selectedImage || "None";
+                // Add the ComfyUI\input\ prefix for display
+                const displayName = state.selectedImage 
+                    ? `ComfyUI\\input\\${state.selectedImage}` 
+                    : "None";
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
 
@@ -625,7 +628,9 @@ const LocalImageGalleryNode = {
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
                 
-                const displayName = state.selectedImage || "None";
+                const displayName = state.selectedImage 
+                    ? `ComfyUI\\input\\${state.selectedImage}` 
+                    : "None";
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
 
@@ -741,13 +746,15 @@ const LocalImageGalleryNode = {
                     background: #444; border-radius: 2px; outline: none; cursor: pointer;
                 }
                 .localimage-root .localimage-size-control .size-slider::-webkit-slider-thumb {
-                    -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
-                    background: #00FFC9; border-radius: 50%; cursor: pointer;
+                    -webkit-appearance: none; appearance: none; width: 24px; height: 24px;
+                    background: #00A68C; border-radius: 50%; cursor: pointer;
                     transition: background 0.2s;
                 }
+
                 .localimage-root .localimage-size-control .size-slider::-webkit-slider-thumb:hover {
-                    background: #00ddb0;
+                    background: #008C74;  /* slightly darker hover */
                 }
+
                 .localimage-root .localimage-size-control .size-slider::-moz-range-thumb {
                     width: 14px; height: 14px; background: #00FFC9; border-radius: 50%;
                     cursor: pointer; border: none;
@@ -782,7 +789,7 @@ const LocalImageGalleryNode = {
                     pointer-events: none;
                 }
                 .localimage-root .localimage-image-card { 
-                    cursor: pointer; border: 2px solid transparent; border-radius: 6px; 
+                    cursor: pointer; border: 4px solid transparent; border-radius: 6px; 
                     background-color: #2a2a2a; display: flex; flex-direction: column; 
                     position: relative; overflow: hidden;
                     contain: layout style paint;
