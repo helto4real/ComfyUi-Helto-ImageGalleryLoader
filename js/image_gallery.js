@@ -811,7 +811,7 @@ const LocalImageGalleryNode = {
                     color: #aaa; line-height: 1.2; max-height: 26px; overflow: hidden;
                     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
                 }
-                .localimage-root .localimage-gallery::-webkit-scrollbar { width: 8px; }
+                .localimage-root .localimage-gallery::-webkit-scrollbar { width: 16px; }
                 .localimage-root .localimage-gallery::-webkit-scrollbar-track { background: #2a2a2a; border-radius: 4px; }
                 .localimage-root .localimage-gallery::-webkit-scrollbar-thumb { background-color: #555; border-radius: 4px; }
                 .localimage-root .localimage-gallery::-webkit-scrollbar-thumb:hover { background-color: #777; }
