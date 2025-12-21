@@ -7,7 +7,7 @@ You can also load an image from your computer and it will be automatically added
 ## Usage
 Select the node called **Image Gallery Loader**.
 
-<img width="700" alt="image" src="https://github.com/user-attachments/assets/2e1ba468-f87a-453f-b31b-609570aa27c4" />
+<img width="700" alt="image" src="https://github.com/user-attachments/assets/f84b5b26-ca14-4e81-ad66-17436ae98bad" />
 
 ## Installation
 
