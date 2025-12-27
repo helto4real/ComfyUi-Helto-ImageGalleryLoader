@@ -212,7 +212,15 @@ const LocalImageGalleryNode = {
 
                 // Update selected class on visible cards
                 els.viewport.querySelectorAll('.localimage-image-card').forEach(card => {
-                    card.classList.toggle('selected', card.dataset.imageName === state.selectedImage);
+                    const cardOriginalName = card.dataset.originalName;
+                    const cardSource = card.dataset.imageSource;
+                    
+                    // Match if original names match AND sources match (or both empty)
+                    const isMatch = cardOriginalName === state.selectedImage && 
+                                (cardSource === state.selectedImageSource || 
+                                    (!cardSource && !state.selectedImageSource));
+                    
+                    card.classList.toggle('selected', isMatch);
                 });
 
                 LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
