@@ -8,6 +8,7 @@ const LocalImageGalleryNode = {
     name: "LocalImageGallery",
     
     _pendingStateUpdates: new Map(),
+    _activeContextMenu: null,  // Track active context menu
     
     async setUiState(nodeId, galleryId, state) {
         const key = `${nodeId}-${galleryId}`;
@@ -31,6 +32,14 @@ const LocalImageGalleryNode = {
         }, 1000);
         
         this._pendingStateUpdates.set(key, { timeout, state });
+    },
+
+    // Close any open context menu
+    closeContextMenu() {
+        if (this._activeContextMenu) {
+            this._activeContextMenu.remove();
+            this._activeContextMenu = null;
+        }
     },
 
     setup(nodeType, nodeData) {
@@ -173,6 +182,118 @@ const LocalImageGalleryNode = {
                 if (els.selectedDisplay) state.cachedHeights.selectedDisplay = els.selectedDisplay.offsetHeight;
             };
 
+            // === CONTEXT MENU FUNCTIONS ===
+            const showContextMenu = (e, imageData) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Close any existing context menu
+                LocalImageGalleryNode.closeContextMenu();
+                
+                // Create context menu
+                const menu = document.createElement('div');
+                menu.className = 'localimage-context-menu';
+                menu.innerHTML = `
+                    <div class="localimage-context-menu-item delete-item" data-action="delete">
+                        <span class="icon">🗑️</span>
+                        <span class="label">Delete Image</span>
+                    </div>
+                `;
+                
+                // Position menu at mouse cursor
+                menu.style.left = `${e.clientX}px`;
+                menu.style.top = `${e.clientY}px`;
+                
+                // Handle menu item clicks
+                menu.addEventListener('click', async (menuEvent) => {
+                    const item = menuEvent.target.closest('.localimage-context-menu-item');
+                    if (!item) return;
+                    
+                    const action = item.dataset.action;
+                    
+                    if (action === 'delete') {
+                        await deleteImage(imageData);
+                    }
+                    
+                    LocalImageGalleryNode.closeContextMenu();
+                });
+                
+                // Add to document
+                document.body.appendChild(menu);
+                LocalImageGalleryNode._activeContextMenu = menu;
+                
+                // Adjust position if menu goes off-screen
+                const menuRect = menu.getBoundingClientRect();
+                if (menuRect.right > window.innerWidth) {
+                    menu.style.left = `${window.innerWidth - menuRect.width - 5}px`;
+                }
+                if (menuRect.bottom > window.innerHeight) {
+                    menu.style.top = `${window.innerHeight - menuRect.height - 5}px`;
+                }
+                
+                // Close menu on click outside
+                const closeOnClickOutside = (clickEvent) => {
+                    if (!menu.contains(clickEvent.target)) {
+                        LocalImageGalleryNode.closeContextMenu();
+                        document.removeEventListener('click', closeOnClickOutside);
+                        document.removeEventListener('contextmenu', closeOnClickOutside);
+                    }
+                };
+                
+                // Delay adding listeners to prevent immediate close
+                setTimeout(() => {
+                    document.addEventListener('click', closeOnClickOutside);
+                    document.addEventListener('contextmenu', closeOnClickOutside);
+                }, 0);
+            };
+            
+            const deleteImage = async (imageData) => {
+                const imageName = imageData.originalName || imageData.name;
+                const imageSource = imageData.source || state.currentSourceFolder;
+                
+                try {
+                    const response = await api.fetchApi('/imagegallery/delete_image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            image: imageName,
+                            source: imageSource
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        console.log(`Deleted: ${imageName} (${result.method || 'removed'})`);
+                        
+                        // If the deleted image was selected, clear selection
+                        if (state.selectedImage === imageName) {
+                            state.selectedImage = "";
+                            state.selectedImageSource = "";
+                            state.selectedOriginalName = "";
+                            updateSelection();
+                        }
+                        
+                        // Remove from local state
+                        state.availableImages = state.availableImages.filter(
+                            img => !(img.original_name === imageName && img.source === imageSource)
+                        );
+                        
+                        // Re-render
+                        state.visibleRange = { start: 0, end: 0 };
+                        renderVisibleCards();
+                        
+                    } else {
+                        console.error('Delete failed:', result.error);
+                        alert(`Failed to delete image: ${result.error || 'Unknown error'}`);
+                    }
+                    
+                } catch (error) {
+                    console.error('Delete error:', error);
+                    alert(`Error deleting image: ${error.message}`);
+                }
+            };
+
             // === API FUNCTIONS ===
             const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name") => {
                 state.isLoading = true;
@@ -195,7 +316,7 @@ const LocalImageGalleryNode = {
             const updateSelection = () => {
                 node.setProperty("selected_image", state.selectedImage);
                 node.setProperty("source_folder", state.currentSourceFolder);
-                node.setProperty("actual_source", state.selectedImageSource || "");  // Store actual source
+                node.setProperty("actual_source", state.selectedImageSource || "");
                 
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
@@ -203,7 +324,6 @@ const LocalImageGalleryNode = {
                 const sourceWidget = node.widgets.find(w => w.name === "source_folder");
                 if (sourceWidget) sourceWidget.value = state.selectedImageSource || state.currentSourceFolder;
 
-                // Update display name
                 let displayName = "None";
                 if (state.selectedImage) {
                     displayName = state.selectedImage;
@@ -211,12 +331,10 @@ const LocalImageGalleryNode = {
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
 
-                // Update selected class on visible cards
                 els.viewport.querySelectorAll('.localimage-image-card').forEach(card => {
                     const cardOriginalName = card.dataset.originalName;
                     const cardSource = card.dataset.imageSource;
                     
-                    // Match if original names match AND sources match (or both empty)
                     const isMatch = cardOriginalName === state.selectedImage && 
                                 (cardSource === state.selectedImageSource || 
                                     (!cardSource && !state.selectedImageSource));
@@ -264,14 +382,12 @@ const LocalImageGalleryNode = {
                 const currentVal = state.currentSourceFolder;
                 els.sourceSelect.innerHTML = '';
                 
-                // Add "All Folders" option first
                 const allOption = document.createElement('option');
                 allOption.value = '__ALL__';
                 allOption.textContent = 'All Folders';
                 allOption.title = 'Show images from all configured folders';
                 els.sourceSelect.appendChild(allOption);
                 
-                // Add individual folders
                 state.availableSourceFolders.forEach((folder, index) => {
                     const option = document.createElement('option');
                     option.value = folder.path;
@@ -280,7 +396,6 @@ const LocalImageGalleryNode = {
                     els.sourceSelect.appendChild(option);
                 });
                 
-                // Restore selection
                 if (currentVal && (currentVal === '__ALL__' || state.availableSourceFolders.some(f => f.path === currentVal))) {
                     els.sourceSelect.value = currentVal;
                 } else if (state.availableSourceFolders.length > 0) {
@@ -291,28 +406,21 @@ const LocalImageGalleryNode = {
 
             const EMPTY_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSIjMjIyIi8+CjxwYXRoIGQ9Ik0zNSA2NUw0NSA1MEw1NSA2MEw2NSA0NUw3NSA2NUgzNVoiIGZpbGw9IiM0NDQiLz4KPGNpcmNsZSBjeD0iNjUiIGN5PSIzNSIgcj0iOCIgZmlsbD0iIzQ0NCIvPgo8L3N2Zz4=';
 
-            // === UPDATE PREVIEW SIZE ===
             const updatePreviewSize = (size) => {
                 state.previewSize = size;
-                
-                // Update the CSS variable for grid
                 els.viewport.style.gridTemplateColumns = `repeat(auto-fill, minmax(${size}px, 1fr))`;
                 
-                // Calculate card height based on size (maintaining aspect ratio)
                 const cardHeight = Math.round(size * 1.1);
                 const imageHeight = Math.round(size * 0.9);
                 state.cardHeight = cardHeight;
                 
-                // Update CSS custom properties on the viewport
                 els.viewport.style.setProperty('--card-height', `${cardHeight}px`);
                 els.viewport.style.setProperty('--image-height', `${imageHeight}px`);
                 
-                // Re-render visible cards
                 state.visibleRange = { start: 0, end: 0 };
                 renderVisibleCards();
             };
 
-            // === VIRTUAL SCROLLING ===
             const calculateGridMetrics = () => {
                 const galleryWidth = els.gallery.clientWidth - 16;
                 const minCardWidth = state.previewSize;
@@ -428,18 +536,31 @@ const LocalImageGalleryNode = {
                 const imageSource = card.dataset.imageSource || "";
                 const originalName = card.dataset.originalName || imageName;
                 
-                // Toggle: if already selected, deselect; otherwise select
                 if (state.selectedImage === imageName) {
                     state.selectedImage = "";
                     state.selectedImageSource = "";
                     state.selectedOriginalName = "";
                 } else {
-                    state.selectedImage = originalName;  // Use original name for loading
-                    state.selectedImageSource = imageSource;  // Store actual source folder
+                    state.selectedImage = originalName;
+                    state.selectedImageSource = imageSource;
                     state.selectedOriginalName = originalName;
                 }
                 
                 updateSelection();
+            });
+
+            // RIGHT-CLICK CONTEXT MENU
+            els.viewport.addEventListener("contextmenu", (e) => {
+                const card = e.target.closest(".localimage-image-card");
+                if (!card) return;
+                
+                const imageData = {
+                    name: card.dataset.imageName,
+                    originalName: card.dataset.originalName || card.dataset.imageName,
+                    source: card.dataset.imageSource || state.currentSourceFolder
+                };
+                
+                showContextMenu(e, imageData);
             });
 
             const fetchAndRender = async (append = false, invalidateCache = false) => {
@@ -459,7 +580,6 @@ const LocalImageGalleryNode = {
                     state.visibleRange = { start: 0, end: 0 };
                 }
                 
-                // REMOVED folder parameter
                 const { images, folders } = await getImages(
                     pageToFetch, 
                     els.searchInput.value, 
@@ -480,7 +600,6 @@ const LocalImageGalleryNode = {
                 if (!append) cacheHeights();
             };
 
-            // === UPLOAD IMAGE FUNCTION ===
             const uploadImage = async (file) => {
                 const formData = new FormData();
                 formData.append('image', file);
@@ -494,7 +613,6 @@ const LocalImageGalleryNode = {
                     
                     if (response.ok) {
                         const result = await response.json();
-                        // The response contains the filename (possibly with subfolder)
                         let uploadedName = result.name;
                         if (result.subfolder) {
                             uploadedName = `${result.subfolder}/${result.name}`;
@@ -511,12 +629,10 @@ const LocalImageGalleryNode = {
                 }
             };
 
-            // === FILE INPUT HANDLER ===
             els.fileInput.addEventListener("change", async (e) => {
                 const files = e.target.files;
                 if (!files || files.length === 0) return;
                 
-                // Show loading state on button
                 const originalText = els.loadImageBtn.textContent;
                 els.loadImageBtn.textContent = "⏳ Uploading...";
                 els.loadImageBtn.disabled = true;
@@ -525,7 +641,6 @@ const LocalImageGalleryNode = {
                 
                 try {
                     for (const file of files) {
-                        // Validate file type
                         if (!file.type.startsWith('image/')) {
                             console.warn(`Skipping non-image file: ${file.name}`);
                             continue;
@@ -539,22 +654,17 @@ const LocalImageGalleryNode = {
                     }
                     
                     if (lastUploadedName) {
-                        // Invalidate cache and refresh
                         await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
                         
-                        // Reset to show all folders/root to ensure we see the uploaded image
                         state.currentFolder = "";
                         els.folderSelect.value = "";
                         state.foldersRendered = false;
                         
-                        // Fetch fresh data
                         await fetchAndRender(false, false);
                         
-                        // Select the last uploaded image
                         state.selectedImage = lastUploadedName;
                         updateSelection();
                         
-                        // Scroll to the selected image if visible
                         setTimeout(() => {
                             const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-image-name="${lastUploadedName}"]`);
                             if (selectedCard) {
@@ -565,28 +675,22 @@ const LocalImageGalleryNode = {
                 } catch (error) {
                     console.error("Error during upload:", error);
                 } finally {
-                    // Reset button state
                     els.loadImageBtn.textContent = originalText;
                     els.loadImageBtn.disabled = false;
-                    // Clear the file input so the same file can be selected again
                     els.fileInput.value = "";
                 }
             });
 
-            // === LOAD IMAGE BUTTON CLICK ===
             els.loadImageBtn.addEventListener("click", () => {
                 els.fileInput.click();
             });
 
-            // === PASTE FROM CLIPBOARD HANDLER ===
             const handlePaste = async (e) => {
-                // Check if we have clipboard items
                 const items = e.clipboardData?.items;
                 if (!items) return;
                 
                 let imageFile = null;
                 
-                // Look for image in clipboard
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf('image') !== -1) {
                         imageFile = items[i].getAsFile();
@@ -598,23 +702,19 @@ const LocalImageGalleryNode = {
                     return;
                 }
                 
-                // CRITICAL: Stop event propagation IMMEDIATELY and SYNCHRONOUSLY
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 
-                // Show loading state
                 const originalText = els.loadImageBtn.textContent;
                 els.loadImageBtn.textContent = "⏳ Pasting...";
                 els.loadImageBtn.disabled = true;
                 
                 try {
-                    // Create form data
                     const formData = new FormData();
                     const blob = new Blob([await imageFile.arrayBuffer()], { type: imageFile.type || 'image/png' });
                     formData.append('image', blob, 'pasted_image.png');
                     
-                    // Upload the image
                     const response = await api.fetchApi('/imagegallery/paste_image', {
                         method: 'POST',
                         body: formData
@@ -623,22 +723,17 @@ const LocalImageGalleryNode = {
                     const result = await response.json();
                     
                     if (response.ok && result.filename) {
-                        // Invalidate cache and refresh
                         await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
                         
-                        // Reset to show all folders/root
                         state.currentFolder = "";
                         state.foldersRendered = false;
                         
-                        // Fetch fresh data
                         await fetchAndRender(false, false);
                         
-                        // Select the pasted image
                         state.selectedImage = result.filename;
                         state.selectedImageSource = state.currentSourceFolder;
                         updateSelection();
                         
-                        // Scroll to the selected image
                         setTimeout(() => {
                             const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-original-name="${result.filename}"]`);
                             if (selectedCard) {
@@ -653,25 +748,19 @@ const LocalImageGalleryNode = {
                 } catch (error) {
                     console.error('Paste error:', error);
                 } finally {
-                    // Reset button state
                     els.loadImageBtn.textContent = originalText;
                     els.loadImageBtn.disabled = false;
                 }
             };
 
-            // Add paste event listener to the widget container
             els.container.addEventListener('paste', handlePaste, true);
-
-            // Make container focusable
             els.container.setAttribute('tabindex', '0');
             els.container.style.outline = 'none';
 
-            // Focus container on mouse down
             els.container.addEventListener('mousedown', () => {
                 els.container.focus();
             });
 
-            // === THROTTLED SCROLL HANDLER ===
             let scrollRAF = null;
             let lastScrollTime = 0;
             const SCROLL_THROTTLE = 16;
@@ -697,7 +786,6 @@ const LocalImageGalleryNode = {
                 });
             }, { passive: true });
 
-            // === EVENT LISTENERS ===
             els.refreshBtn.addEventListener("click", () => {
                 state.foldersRendered = false;
                 fetchAndRender(false, true);
@@ -716,13 +804,11 @@ const LocalImageGalleryNode = {
                 fetchAndRender(false);
             });
 
-            // Size slider handler with debouncing for state save
             let sizeSliderTimeout;
             els.sizeSlider.addEventListener("input", (e) => {
                 const size = parseInt(e.target.value, 10);
                 updatePreviewSize(size);
                 
-                // Debounce the state save
                 clearTimeout(sizeSliderTimeout);
                 sizeSliderTimeout = setTimeout(() => {
                     LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
@@ -748,13 +834,11 @@ const LocalImageGalleryNode = {
                 }
             });
 
-            // Source folder change
             els.sourceSelect.addEventListener("change", () => {
                 state.currentSourceFolder = els.sourceSelect.value;
                 fetchAndRender(false);
             });
 
-            // Folder Manager button
             els.folderManagerBtn.addEventListener("click", async () => {
                 folderManager.onFoldersChanged = (folders) => {
                     state.availableSourceFolders = folders;
@@ -763,7 +847,6 @@ const LocalImageGalleryNode = {
                 await folderManager.open();
             });
 
-            // === OPTIMIZED RESIZE ===
             let resizeRAF = null;
             
             const fitHeight = () => {
@@ -792,12 +875,11 @@ const LocalImageGalleryNode = {
                 }
             };
 
-            // === INITIALIZATION ===
             this.initializeNode = async () => {
                 let initialState = { 
                     selected_image: "", 
                     current_folder: "", 
-                    current_source_folder: "",  // ADD THIS
+                    current_source_folder: "",
                     metadata_filter: "all", 
                     sort_order: "name", 
                     preview_size: 110 
@@ -813,7 +895,6 @@ const LocalImageGalleryNode = {
                     console.error("LocalImageGallery: Failed to get initial UI state.", e); 
                 }
 
-                // Load source folders first
                 await loadSourceFolders();
 
                 state.selectedImage = initialState.selected_image || "";
@@ -824,7 +905,6 @@ const LocalImageGalleryNode = {
                 state.sortOrder = initialState.sort_order || "name";
                 state.previewSize = initialState.preview_size || 110;
                 
-                // Set source folder selection
                 if (state.currentSourceFolder) {
                     els.sourceSelect.value = state.currentSourceFolder;
                 }
@@ -844,7 +924,6 @@ const LocalImageGalleryNode = {
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
 
-                // Apply saved preview size
                 els.sizeSlider.value = state.previewSize;
                 updatePreviewSize(state.previewSize);
 
@@ -863,7 +942,6 @@ const LocalImageGalleryNode = {
                 }
             };
 
-            // === CLEANUP ===
             const originalOnRemoved = this.onRemoved;
             this.onRemoved = function() {
                 if (scrollRAF) cancelAnimationFrame(scrollRAF);
@@ -871,10 +949,12 @@ const LocalImageGalleryNode = {
                 clearTimeout(searchTimeout);
                 clearTimeout(sizeSliderTimeout);
                 
-                // Remove paste listener
                 if (els.container) {
                     els.container.removeEventListener('paste', handlePaste, true);
                 }
+                
+                // Close context menu if this node is removed
+                LocalImageGalleryNode.closeContextMenu();
                 
                 state.elements = {};
                 state.availableImages = [];
@@ -882,7 +962,6 @@ const LocalImageGalleryNode = {
                 if (originalOnRemoved) originalOnRemoved.apply(this, arguments);
             };
 
-            // Start initialization
             requestAnimationFrame(async () => {
                 await this.initializeNode();
                 fitHeight();
@@ -898,6 +977,50 @@ const LocalImageGalleryNode = {
             const style = document.createElement('style');
             style.id = 'localimage-gallery-styles';
             style.textContent = `
+                /* Context Menu Styles */
+                .localimage-context-menu {
+                    position: fixed;
+                    z-index: 100000;
+                    background: #252525;
+                    border: 1px solid #444;
+                    border-radius: 6px;
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+                    min-width: 160px;
+                    padding: 4px 0;
+                    font-family: sans-serif;
+                    font-size: 14px;
+                }
+                .localimage-context-menu-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 16px;
+                    cursor: pointer;
+                    color: #ddd;
+                    transition: background 0.15s;
+                }
+                .localimage-context-menu-item:hover {
+                    background: #3a3a3a;
+                }
+                .localimage-context-menu-item.delete-item:hover {
+                    background: #5a2a2a;
+                    color: #ff6b6b;
+                }
+                .localimage-context-menu-item .icon {
+                    font-size: 16px;
+                    width: 20px;
+                    text-align: center;
+                }
+                .localimage-context-menu-item .label {
+                    flex-grow: 1;
+                }
+                .localimage-context-menu-separator {
+                    height: 1px;
+                    background: #444;
+                    margin: 4px 8px;
+                }
+                
+                /* Existing styles */
                 .localimage-root .localimage-size-control .folder-manager-btn {
                     background: #3a3a5a;
                     color: #fff;
@@ -996,7 +1119,7 @@ const LocalImageGalleryNode = {
                 }
 
                 .localimage-root .localimage-size-control .size-slider::-webkit-slider-thumb:hover {
-                    background: #008C74;  /* slightly darker hover */
+                    background: #008C74;
                 }
 
                 .localimage-root .localimage-size-control .size-slider::-moz-range-thumb {
