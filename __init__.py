@@ -1,3 +1,5 @@
+"""__init__.py"""
+
 import os
 import json
 import folder_paths
@@ -18,6 +20,7 @@ NODE_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_STATE_FILE = os.path.join(NODE_DIR, "image_gallery_ui_state.json")
 CACHE_DIR = os.path.join(NODE_DIR, "thumbnail_cache")
 IMAGE_EXTENSIONS = frozenset(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff'])
+CUSTOM_FOLDERS_FILE = os.path.join(NODE_DIR, "custom_source_folders.json")
 
 WEB_DIRECTORY = "./js"
 
@@ -211,19 +214,79 @@ def has_comfyui_metadata_fast(image_path, mtime=None):
         return False
 
 
-def get_input_images_optimized(subfolder="", metadata_filter="all", sort_by="name"):
-    """Optimized image listing with caching."""
-    input_dir = folder_paths.get_input_directory()
+def get_input_images_optimized(subfolder="", metadata_filter="all", sort_by="name", source_folder=""):
+    """Optimized image listing with caching and multiple source folder support."""
+    
+    # Handle "ALL" source folder - scan all configured folders
+    if source_folder == "__ALL__":
+        all_images = []
+        all_folders = set()
+        all_mtimes = {}
+        
+        folders = load_source_folders()
+        for folder_config in folders:
+            folder_path = folder_config.get('path', '')
+            if not folder_path or not os.path.exists(folder_path):
+                continue
+            
+            images, folders_list, mtimes = _image_cache.get_directory_listing(folder_path)
+            
+            # Prefix images with folder name for uniqueness
+            folder_name = folder_config.get('name', os.path.basename(folder_path))
+            for img in images:
+                prefixed_name = f"[{folder_name}] {img}"
+                all_images.append({
+                    'name': prefixed_name,
+                    'original_name': img,
+                    'source_folder': folder_path,
+                    'mtime': mtimes.get(img, 0)
+                })
+                all_mtimes[prefixed_name] = mtimes.get(img, 0)
+            
+            all_folders.update(folders_list)
+        
+        # Apply metadata filter
+        if metadata_filter != "all":
+            filtered_images = []
+            for img_data in all_images:
+                full_path = os.path.join(img_data['source_folder'], img_data['original_name'])
+                has_meta = has_comfyui_metadata_fast(full_path, img_data['mtime'])
+                
+                if metadata_filter == "with" and has_meta:
+                    filtered_images.append(img_data)
+                elif metadata_filter == "without" and not has_meta:
+                    filtered_images.append(img_data)
+            all_images = filtered_images
+        
+        # Apply sorting
+        if sort_by == "date":
+            all_images = sorted(all_images, key=lambda x: x['mtime'], reverse=True)
+        elif sort_by == "date_asc":
+            all_images = sorted(all_images, key=lambda x: x['mtime'])
+        else:
+            all_images = sorted(all_images, key=lambda x: x['name'].lower())
+        
+        return all_images, sorted(list(all_folders)), all_mtimes, "__ALL__"
+    
+    # Original single folder logic
+    if source_folder:
+        folders = load_source_folders()
+        source_folder_norm = os.path.normpath(source_folder)
+        valid_source = any(os.path.normpath(f.get('path', '')) == source_folder_norm for f in folders)
+        
+        if valid_source and os.path.exists(source_folder) and os.path.isdir(source_folder):
+            input_dir = source_folder
+        else:
+            input_dir = folder_paths.get_input_directory()
+    else:
+        input_dir = folder_paths.get_input_directory()
     
     # Get cached directory listing
     all_images, all_folders, mtimes = _image_cache.get_directory_listing(input_dir)
     
-    # Filter by subfolder
-    if subfolder:
-        if subfolder == ".":
-            all_images = [img for img in all_images if os.sep not in img and "/" not in img]
-        else:
-            all_images = [img for img in all_images if img.startswith(subfolder + os.sep) or img.startswith(subfolder + "/")]
+    # Filter by subfolder - REMOVED since we're removing subfolder filtering
+    # if subfolder:
+    #     ...
     
     # Apply metadata filter (only if needed)
     if metadata_filter != "all":
@@ -242,17 +305,23 @@ def get_input_images_optimized(subfolder="", metadata_filter="all", sort_by="nam
     
     # Apply sorting
     if sort_by == "date":
-        # Sort by modification time, newest first
         all_images = sorted(all_images, key=lambda x: mtimes.get(x, 0), reverse=True)
     elif sort_by == "date_asc":
-        # Sort by modification time, oldest first
         all_images = sorted(all_images, key=lambda x: mtimes.get(x, 0))
     else:
-        # Default: sort by name (already sorted from cache, but ensure it)
         all_images = sorted(all_images, key=lambda x: x.lower())
     
-    return all_images, all_folders, mtimes
-
+    # Convert to consistent format
+    image_list = []
+    for img in all_images:
+        image_list.append({
+            'name': img,
+            'original_name': img,
+            'source_folder': input_dir,
+            'mtime': mtimes.get(img, 0)
+        })
+    
+    return image_list, all_folders, mtimes, input_dir
 
 def get_thumbnail_path(image_path):
     """Get path to cached thumbnail."""
@@ -295,18 +364,323 @@ def generate_thumbnail(image_path, max_size=200):
         print(f"Error generating thumbnail for {image_path}: {e}")
         return None
 
+def load_source_folders():
+    """Load custom source folder paths from config file."""
+    input_dir = folder_paths.get_input_directory()
+    default_folder = {"path": input_dir, "name": "input", "is_default": True}
+    
+    if not os.path.exists(CUSTOM_FOLDERS_FILE):
+        return [default_folder]
+    
+    try:
+        with open(CUSTOM_FOLDERS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            folders = data.get('folders', [])
+            
+            # Normalize paths and filter out non-existent folders
+            valid_folders = []
+            for f in folders:
+                path = os.path.normpath(f.get('path', ''))
+                if os.path.exists(path) and os.path.isdir(path):
+                    valid_folders.append({
+                        "path": path,
+                        "name": f.get('name', os.path.basename(path)),
+                        "is_default": f.get('is_default', False)
+                    })
+            
+            # Always ensure input folder is first
+            input_dir_norm = os.path.normpath(input_dir)
+            has_input = any(os.path.normpath(f.get('path', '')) == input_dir_norm for f in valid_folders)
+            if not has_input:
+                valid_folders.insert(0, default_folder)
+            else:
+                # Move input to first position if it exists
+                for i, f in enumerate(valid_folders):
+                    if os.path.normpath(f.get('path', '')) == input_dir_norm:
+                        f['is_default'] = True
+                        if i != 0:
+                            valid_folders.insert(0, valid_folders.pop(i))
+                        break
+            
+            return valid_folders
+    except Exception as e:
+        print(f"Error loading custom source folders: {e}")
+        return [default_folder]
+
+
+def save_source_folders(folders):
+    """Save custom source folder paths to config file."""
+    try:
+        with open(CUSTOM_FOLDERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"folders": folders}, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving custom source folders: {e}")
 
 # === API ENDPOINTS ===
 
+@server.PromptServer.instance.routes.post("/imagegallery/browse_folder")
+async def browse_folder(request):
+    """Open native folder picker dialog and return selected path."""
+    import asyncio
+    import subprocess
+    import sys
+    
+    def open_folder_dialog():
+        """Open folder dialog in a separate thread to avoid blocking."""
+        
+        # Windows: Use PowerShell with OpenFileDialog configured for folders
+        if sys.platform == 'win32':
+            try:
+                powershell_script = '''
+                Add-Type -AssemblyName System.Windows.Forms
+                
+                $dialog = New-Object System.Windows.Forms.OpenFileDialog
+                $dialog.ValidateNames = $false
+                $dialog.CheckFileExists = $false
+                $dialog.CheckPathExists = $true
+                $dialog.Title = "Select Source Folder for Image Gallery"
+                $dialog.FileName = "Folder Selection"
+                $dialog.Filter = "Folders|*.folder"
+                
+                # Create a form to be the parent and bring to front
+                $form = New-Object System.Windows.Forms.Form
+                $form.TopMost = $true
+                $form.MinimizeBox = $false
+                $form.MaximizeBox = $false
+                $form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+                $form.ShowInTaskbar = $false
+                $form.Show()
+                $form.Activate()
+                
+                $result = $dialog.ShowDialog($form)
+                $form.Close()
+                
+                if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+                    $folderPath = Split-Path -Parent $dialog.FileName
+                    Write-Output $folderPath
+                } else {
+                    Write-Output "::CANCELLED::"
+                }
+                '''
+                
+                # Run PowerShell with hidden window
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                
+                result = subprocess.run(
+                    ['powershell', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command', powershell_script],
+                    capture_output=True,
+                    text=True,
+                    startupinfo=startupinfo,
+                    timeout=120  # 2 minute timeout
+                )
+                
+                folder_path = result.stdout.strip()
+                
+                if folder_path == "::CANCELLED::" or not folder_path:
+                    return {"cancelled": True}
+                
+                if os.path.isdir(folder_path):
+                    return {"path": os.path.normpath(folder_path), "cancelled": False}
+                else:
+                    return {"cancelled": True}
+                    
+            except subprocess.TimeoutExpired:
+                return {"error": "Folder dialog timed out. Please try again."}
+            except Exception as e:
+                print(f"PowerShell folder dialog failed: {e}")
+                # Fall through to tkinter
+        
+        # Try tkinter (cross-platform fallback)
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            root = tk.Tk()
+            root.withdraw()
+            
+            # Make sure dialog appears on top
+            root.wm_attributes('-topmost', 1)
+            root.focus_force()
+            
+            # On Windows, also try to lift the window
+            if sys.platform == 'win32':
+                root.lift()
+                root.attributes('-topmost', True)
+                root.after_idle(root.attributes, '-topmost', False)
+            
+            folder_path = filedialog.askdirectory(
+                parent=root,
+                title="Select Source Folder for Image Gallery",
+                mustexist=True
+            )
+            
+            root.destroy()
+            
+            if folder_path:
+                return {"path": os.path.normpath(folder_path), "cancelled": False}
+            else:
+                return {"cancelled": True}
+                
+        except ImportError:
+            pass
+        except Exception as tk_error:
+            print(f"Tkinter folder dialog failed: {tk_error}")
+        
+        # Linux/Mac: Try zenity or kdialog
+        if sys.platform != 'win32':
+            try:
+                # Try zenity first (common on GNOME)
+                result = subprocess.run(
+                    ['zenity', '--file-selection', '--directory', '--title=Select Source Folder'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                if result.returncode == 0:
+                    folder_path = result.stdout.strip()
+                    if folder_path and os.path.isdir(folder_path):
+                        return {"path": os.path.normpath(folder_path), "cancelled": False}
+                return {"cancelled": True}
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            
+            try:
+                # Try kdialog (common on KDE)
+                result = subprocess.run(
+                    ['kdialog', '--getexistingdirectory', '--title', 'Select Source Folder'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                if result.returncode == 0:
+                    folder_path = result.stdout.strip()
+                    if folder_path and os.path.isdir(folder_path):
+                        return {"path": os.path.normpath(folder_path), "cancelled": False}
+                return {"cancelled": True}
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+        
+        return {"error": "No folder dialog available. Please install tkinter or use manual path entry."}
+    
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_executor, open_folder_dialog)
+        
+        if "error" in result:
+            return web.json_response({"error": result["error"]}, status=500)
+        
+        return web.json_response(result)
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in browse_folder: {traceback.format_exc()}")
+        return web.json_response({"error": str(e)}, status=500)
+
+@server.PromptServer.instance.routes.get("/imagegallery/get_source_folders")
+async def get_source_folders(request):
+    """Get list of configured source folders."""
+    try:
+        folders = load_source_folders()
+        return web.json_response({"folders": folders})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@server.PromptServer.instance.routes.post("/imagegallery/add_source_folder")
+async def add_source_folder(request):
+    """Add a new source folder to the configuration."""
+    try:
+        data = await request.json()
+        folder_path = data.get("path", "").strip()
+        folder_name = data.get("name", "").strip()
+        
+        if not folder_path:
+            return web.json_response({"error": "Path is required"}, status=400)
+        
+        # Normalize path
+        folder_path = os.path.normpath(folder_path)
+        
+        # Validate path exists and is a directory
+        if not os.path.exists(folder_path):
+            return web.json_response({"error": f"Path does not exist: {folder_path}"}, status=400)
+        
+        if not os.path.isdir(folder_path):
+            return web.json_response({"error": f"Path is not a directory: {folder_path}"}, status=400)
+        
+        # Generate name if not provided
+        if not folder_name:
+            folder_name = os.path.basename(folder_path) or folder_path
+        
+        folders = load_source_folders()
+        
+        # Check if already exists
+        if any(os.path.normpath(f.get('path', '')) == folder_path for f in folders):
+            return web.json_response({"error": "Folder already exists in the list"}, status=400)
+        
+        folders.append({"path": folder_path, "name": folder_name, "is_default": False})
+        save_source_folders(folders)
+        
+        # Invalidate cache
+        _image_cache.invalidate()
+        
+        return web.json_response({"status": "ok", "folders": folders})
+    except Exception as e:
+        import traceback
+        print(f"Error adding source folder: {traceback.format_exc()}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@server.PromptServer.instance.routes.post("/imagegallery/remove_source_folder")
+async def remove_source_folder(request):
+    """Remove a source folder from the configuration."""
+    try:
+        data = await request.json()
+        folder_path = data.get("path", "").strip()
+        
+        if not folder_path:
+            return web.json_response({"error": "Path is required"}, status=400)
+        
+        folder_path = os.path.normpath(folder_path)
+        folders = load_source_folders()
+        
+        # Don't allow removing default input folder
+        input_dir = os.path.normpath(folder_paths.get_input_directory())
+        if folder_path == input_dir:
+            return web.json_response({"error": "Cannot remove the default input folder"}, status=400)
+        
+        # Filter out the folder to remove
+        new_folders = [f for f in folders if os.path.normpath(f.get('path', '')) != folder_path]
+        
+        if len(new_folders) == len(folders):
+            return web.json_response({"error": "Folder not found in the list"}, status=400)
+        
+        save_source_folders(new_folders)
+        
+        # Invalidate cache
+        _image_cache.invalidate()
+        
+        return web.json_response({"status": "ok", "folders": new_folders})
+    except Exception as e:
+        import traceback
+        print(f"Error removing source folder: {traceback.format_exc()}")
+        return web.json_response({"error": str(e)}, status=500)
+    
 @server.PromptServer.instance.routes.get("/imagegallery/get_images")
 async def get_images_endpoint(request):
     try:
         page = int(request.query.get('page', 1))
-        per_page = int(request.query.get('per_page', 50))
+        per_page = int(request.query.get('per_page', 100))
         search = request.query.get('search', '').lower()
-        folder = request.query.get('folder', '')
+        # REMOVED: folder parameter
         metadata_filter = request.query.get('metadata', 'all')
-        sort_by = request.query.get('sort', 'name')  # NEW: sort parameter
+        sort_by = request.query.get('sort', 'name')
+        source_folder = request.query.get('source', '')
         
         if metadata_filter not in ['all', 'with', 'without']:
             metadata_filter = 'all'
@@ -314,11 +688,16 @@ async def get_images_endpoint(request):
         if sort_by not in ['name', 'date', 'date_asc']:
             sort_by = 'name'
         
-        all_images, all_folders, mtimes = get_input_images_optimized(folder, metadata_filter, sort_by)
+        if source_folder:
+            source_folder = urllib.parse.unquote(source_folder)
+        
+        all_images, all_folders, mtimes, used_input_dir = get_input_images_optimized(
+            "", metadata_filter, sort_by, source_folder  # Empty subfolder
+        )
         
         # Filter by search term
         if search:
-            all_images = [img for img in all_images if search in img.lower()]
+            all_images = [img for img in all_images if search in img['name'].lower()]
         
         total_images = len(all_images)
         total_pages = max(1, (total_images + per_page - 1) // per_page)
@@ -328,42 +707,61 @@ async def get_images_endpoint(request):
         paginated_images = all_images[start_index:end_index]
         
         image_info_list = []
-        for img_name in paginated_images:
-            encoded_name = urllib.parse.quote(img_name, safe='')
+        for img_data in paginated_images:
+            encoded_name = urllib.parse.quote(img_data['original_name'], safe='')
+            encoded_source = urllib.parse.quote(img_data['source_folder'], safe='')
             image_info_list.append({
-                "name": img_name,
-                "preview_url": f"/imagegallery/thumb?filename={encoded_name}"
+                "name": img_data['name'],
+                "original_name": img_data['original_name'],
+                "preview_url": f"/imagegallery/thumb?filename={encoded_name}&source={encoded_source}",
+                "source": img_data['source_folder']
             })
         
         return web.json_response({
             "images": image_info_list,
             "folders": all_folders,
             "total_pages": total_pages,
-            "current_page": page
+            "current_page": page,
+            "source_folder": used_input_dir
         })
     except Exception as e:
         import traceback
         print(f"Error in get_images_endpoint: {traceback.format_exc()}")
         return web.json_response({"error": str(e)}, status=500)
 
-
 @server.PromptServer.instance.routes.get("/imagegallery/thumb")
 async def get_thumbnail(request):
     """Serve optimized thumbnails instead of full images."""
     filename = request.query.get('filename')
+    source = request.query.get('source', '')
     
     if not filename:
         return web.Response(status=400, text="Missing filename parameter")
     
     try:
         filename_decoded = urllib.parse.unquote(filename)
+        source_decoded = urllib.parse.unquote(source) if source else ''
         
         if ".." in filename_decoded:
             return web.Response(status=403, text="Invalid filename")
         
-        input_dir = folder_paths.get_input_directory()
+        # Determine base directory
+        if source_decoded:
+            # Validate source is in our configured list
+            folders = load_source_folders()
+            source_norm = os.path.normpath(source_decoded)
+            valid_source = any(os.path.normpath(f.get('path', '')) == source_norm for f in folders)
+            
+            if valid_source and os.path.exists(source_decoded) and os.path.isdir(source_decoded):
+                input_dir = source_decoded
+            else:
+                input_dir = folder_paths.get_input_directory()
+        else:
+            input_dir = folder_paths.get_input_directory()
+        
         image_path = os.path.normpath(os.path.join(input_dir, filename_decoded))
         
+        # Security check
         if not image_path.startswith(os.path.normpath(input_dir)):
             return web.Response(status=403, text="Access denied")
         
@@ -375,32 +773,44 @@ async def get_thumbnail(request):
         
         if thumb_path and os.path.exists(thumb_path):
             return web.FileResponse(thumb_path, headers={
-                'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+                'Cache-Control': 'public, max-age=86400',
                 'Content-Type': 'image/webp'
             })
         else:
-            # Fallback to original image
             return web.FileResponse(image_path)
             
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
-
 @server.PromptServer.instance.routes.get("/imagegallery/preview")
 async def get_preview_image(request):
     """Full image preview (for when user needs full resolution)."""
     filename = request.query.get('filename')
+    source = request.query.get('source', '')
     
     if not filename:
         return web.Response(status=400, text="Missing filename parameter")
     
     try:
         filename_decoded = urllib.parse.unquote(filename)
+        source_decoded = urllib.parse.unquote(source) if source else ''
         
         if ".." in filename_decoded:
             return web.Response(status=403, text="Invalid filename")
         
-        input_dir = folder_paths.get_input_directory()
+        # Determine base directory
+        if source_decoded:
+            folders = load_source_folders()
+            source_norm = os.path.normpath(source_decoded)
+            valid_source = any(os.path.normpath(f.get('path', '')) == source_norm for f in folders)
+            
+            if valid_source and os.path.exists(source_decoded) and os.path.isdir(source_decoded):
+                input_dir = source_decoded
+            else:
+                input_dir = folder_paths.get_input_directory()
+        else:
+            input_dir = folder_paths.get_input_directory()
+        
         image_path = os.path.normpath(os.path.join(input_dir, filename_decoded))
         
         if not image_path.startswith(os.path.normpath(input_dir)):
@@ -469,7 +879,8 @@ class LocalImageGallery:
             "required": {},
             "hidden": {
                 "unique_id": "UNIQUE_ID",
-                "selected_image": ("STRING", {"default": ""})
+                "selected_image": ("STRING", {"default": ""}),
+                "source_folder": ("STRING", {"default": ""})  # NEW
             }
         }
 
@@ -479,15 +890,27 @@ class LocalImageGallery:
     CATEGORY = "🖼️ Image Gallery"
 
     @classmethod
-    def IS_CHANGED(cls, selected_image="", **kwargs):
-        return selected_image
+    def IS_CHANGED(cls, selected_image="", source_folder="", **kwargs):
+        return f"{source_folder}:{selected_image}"
     
     @classmethod
-    def VALIDATE_INPUTS(cls, selected_image="", **kwargs):
+    def VALIDATE_INPUTS(cls, selected_image="", source_folder="", **kwargs):
         if not selected_image:
             return True
         
-        input_dir = folder_paths.get_input_directory()
+        # Determine input directory
+        if source_folder:
+            folders = load_source_folders()
+            source_norm = os.path.normpath(source_folder)
+            valid_source = any(os.path.normpath(f.get('path', '')) == source_norm for f in folders)
+            
+            if valid_source and os.path.exists(source_folder) and os.path.isdir(source_folder):
+                input_dir = source_folder
+            else:
+                input_dir = folder_paths.get_input_directory()
+        else:
+            input_dir = folder_paths.get_input_directory()
+        
         image_path = os.path.normpath(os.path.join(input_dir, selected_image))
         
         if not image_path.startswith(os.path.normpath(input_dir)):
@@ -498,13 +921,25 @@ class LocalImageGallery:
         
         return True
 
-    def load_image(self, unique_id, selected_image="", **kwargs):
+    def load_image(self, unique_id, selected_image="", source_folder="", **kwargs):
         if not selected_image:
             print("LocalImageGallery: No image selected, returning blank image.")
             blank = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
             return (blank,)
         
-        input_dir = folder_paths.get_input_directory()
+        # Determine input directory
+        if source_folder:
+            folders = load_source_folders()
+            source_norm = os.path.normpath(source_folder)
+            valid_source = any(os.path.normpath(f.get('path', '')) == source_norm for f in folders)
+            
+            if valid_source and os.path.exists(source_folder) and os.path.isdir(source_folder):
+                input_dir = source_folder
+            else:
+                input_dir = folder_paths.get_input_directory()
+        else:
+            input_dir = folder_paths.get_input_directory()
+        
         image_path = os.path.normpath(os.path.join(input_dir, selected_image))
         
         if not image_path.startswith(os.path.normpath(input_dir)):
@@ -537,7 +972,6 @@ class LocalImageGallery:
             traceback.print_exc()
             blank = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
             return (blank,)
-
 
 NODE_CLASS_MAPPINGS = {
     "LocalImageGallery": LocalImageGallery
