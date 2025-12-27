@@ -198,7 +198,6 @@ const LocalImageGalleryNode = {
                         <span class="icon">📋</span>
                         <span class="label">Paste Image</span>
                     </div>
-                    <div class="localimage-context-menu-separator"></div>
                     <div class="localimage-context-menu-item delete-item" data-action="delete">
                         <span class="icon">🗑️</span>
                         <span class="label">Delete Image</span>
