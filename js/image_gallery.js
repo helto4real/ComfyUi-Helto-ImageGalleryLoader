@@ -194,6 +194,11 @@ const LocalImageGalleryNode = {
                 const menu = document.createElement('div');
                 menu.className = 'localimage-context-menu';
                 menu.innerHTML = `
+                    <div class="localimage-context-menu-item paste-item" data-action="paste">
+                        <span class="icon">📋</span>
+                        <span class="label">Paste Image</span>
+                    </div>
+                    <div class="localimage-context-menu-separator"></div>
                     <div class="localimage-context-menu-item delete-item" data-action="delete">
                         <span class="icon">🗑️</span>
                         <span class="label">Delete Image</span>
@@ -213,6 +218,8 @@ const LocalImageGalleryNode = {
                     
                     if (action === 'delete') {
                         await deleteImage(imageData);
+                    } else if (action === 'paste') {
+                        await pasteImageFromClipboard();
                     }
                     
                     LocalImageGalleryNode.closeContextMenu();
@@ -291,6 +298,90 @@ const LocalImageGalleryNode = {
                 } catch (error) {
                     console.error('Delete error:', error);
                     alert(`Error deleting image: ${error.message}`);
+                }
+            };
+
+            const pasteImageFromClipboard = async () => {
+                try {
+                    // Check if clipboard API is available
+                    if (!navigator.clipboard || !navigator.clipboard.read) {
+                        alert('Clipboard API not available. Please use Ctrl+V instead.');
+                        return;
+                    }
+                    
+                    const clipboardItems = await navigator.clipboard.read();
+                    let imageBlob = null;
+                    
+                    for (const item of clipboardItems) {
+                        // Check for image types
+                        for (const type of item.types) {
+                            if (type.startsWith('image/')) {
+                                imageBlob = await item.getType(type);
+                                break;
+                            }
+                        }
+                        if (imageBlob) break;
+                    }
+                    
+                    if (!imageBlob) {
+                        alert('No image found in clipboard. Copy an image first.');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const originalText = els.loadImageBtn.textContent;
+                    els.loadImageBtn.textContent = "⏳ Pasting...";
+                    els.loadImageBtn.disabled = true;
+                    
+                    try {
+                        const formData = new FormData();
+                        formData.append('image', imageBlob, 'pasted_image.png');
+                        
+                        const response = await api.fetchApi('/imagegallery/paste_image', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok && result.filename) {
+                            await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
+                            
+                            state.currentFolder = "";
+                            state.foldersRendered = false;
+                            
+                            await fetchAndRender(false, false);
+                            
+                            state.selectedImage = result.filename;
+                            state.selectedImageSource = state.currentSourceFolder;
+                            updateSelection();
+                            
+                            setTimeout(() => {
+                                const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-original-name="${result.filename}"]`);
+                                if (selectedCard) {
+                                    selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }
+                            }, 100);
+                            
+                        } else {
+                            console.error('Paste failed:', result.error || 'Unknown error');
+                            alert('Failed to paste image: ' + (result.error || 'Unknown error'));
+                        }
+                        
+                    } finally {
+                        els.loadImageBtn.textContent = originalText;
+                        els.loadImageBtn.disabled = false;
+                    }
+                    
+                } catch (error) {
+                    console.error('Paste error:', error);
+                    
+                    // Handle permission denied specifically
+                    if (error.name === 'NotAllowedError') {
+                        alert('Clipboard access denied. Please use Ctrl+V to paste, or grant clipboard permission.');
+                    } else {
+                        alert('Error pasting image: ' + error.message);
+                    }
                 }
             };
 
