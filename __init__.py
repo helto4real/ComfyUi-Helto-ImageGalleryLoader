@@ -582,6 +582,46 @@ async def browse_folder(request):
         print(f"Error in browse_folder: {traceback.format_exc()}")
         return web.json_response({"error": str(e)}, status=500)
 
+@server.PromptServer.instance.routes.post("/imagegallery/paste_image")
+async def paste_image(request):
+    """Handle pasted image from clipboard."""
+    try:
+        data = await request.post()
+        
+        if 'image' not in data:
+            return web.json_response({"error": "No image data provided"}, status=400)
+        
+        image_field = data['image']
+        
+        # Read image data
+        image_data = image_field.file.read()
+        
+        # Generate filename with timestamp
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"pasted_image_{timestamp}.png"
+        
+        # Get input directory
+        input_dir = folder_paths.get_input_directory()
+        filepath = os.path.join(input_dir, filename)
+        
+        # Save the image
+        with open(filepath, 'wb') as f:
+            f.write(image_data)
+        
+        # Invalidate cache
+        _image_cache.invalidate()
+        
+        return web.json_response({
+            "status": "ok",
+            "filename": filename,
+            "message": f"Image pasted successfully as {filename}"
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in paste_image: {traceback.format_exc()}")
+        return web.json_response({"error": str(e)}, status=500)
+
 @server.PromptServer.instance.routes.get("/imagegallery/get_source_folders")
 async def get_source_folders(request):
     """Get list of configured source folders."""

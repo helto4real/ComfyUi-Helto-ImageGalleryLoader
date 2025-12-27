@@ -113,6 +113,7 @@ const LocalImageGalleryNode = {
                         <div class="localimage-selected-display">
                             <span class="label">Selected:</span>
                             <span class="selected-name" title="">None</span>
+                            <span class="paste-hint" title="Click gallery and press Ctrl+V to paste">📋</span>
                         </div>
                         <div class="localimage-controls">
                             <input type="text" class="search-input" placeholder="🔍 Search images...">
@@ -266,7 +267,7 @@ const LocalImageGalleryNode = {
                 // Add "All Folders" option first
                 const allOption = document.createElement('option');
                 allOption.value = '__ALL__';
-                allOption.textContent = '📂 All Folders';
+                allOption.textContent = 'All Folders';
                 allOption.title = 'Show images from all configured folders';
                 els.sourceSelect.appendChild(allOption);
                 
@@ -577,6 +578,99 @@ const LocalImageGalleryNode = {
                 els.fileInput.click();
             });
 
+            // === PASTE FROM CLIPBOARD HANDLER ===
+            const handlePaste = async (e) => {
+                // Check if we have clipboard items
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                
+                let imageFile = null;
+                
+                // Look for image in clipboard
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1) {
+                        imageFile = items[i].getAsFile();
+                        break;
+                    }
+                }
+                
+                if (!imageFile) {
+                    return;
+                }
+                
+                // CRITICAL: Stop event propagation IMMEDIATELY and SYNCHRONOUSLY
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                // Show loading state
+                const originalText = els.loadImageBtn.textContent;
+                els.loadImageBtn.textContent = "⏳ Pasting...";
+                els.loadImageBtn.disabled = true;
+                
+                try {
+                    // Create form data
+                    const formData = new FormData();
+                    const blob = new Blob([await imageFile.arrayBuffer()], { type: imageFile.type || 'image/png' });
+                    formData.append('image', blob, 'pasted_image.png');
+                    
+                    // Upload the image
+                    const response = await api.fetchApi('/imagegallery/paste_image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok && result.filename) {
+                        // Invalidate cache and refresh
+                        await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
+                        
+                        // Reset to show all folders/root
+                        state.currentFolder = "";
+                        state.foldersRendered = false;
+                        
+                        // Fetch fresh data
+                        await fetchAndRender(false, false);
+                        
+                        // Select the pasted image
+                        state.selectedImage = result.filename;
+                        state.selectedImageSource = state.currentSourceFolder;
+                        updateSelection();
+                        
+                        // Scroll to the selected image
+                        setTimeout(() => {
+                            const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-original-name="${result.filename}"]`);
+                            if (selectedCard) {
+                                selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 100);
+                        
+                    } else {
+                        console.error('Paste failed:', result.error || 'Unknown error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Paste error:', error);
+                } finally {
+                    // Reset button state
+                    els.loadImageBtn.textContent = originalText;
+                    els.loadImageBtn.disabled = false;
+                }
+            };
+
+            // Add paste event listener to the widget container
+            els.container.addEventListener('paste', handlePaste, true);
+
+            // Make container focusable
+            els.container.setAttribute('tabindex', '0');
+            els.container.style.outline = 'none';
+
+            // Focus container on mouse down
+            els.container.addEventListener('mousedown', () => {
+                els.container.focus();
+            });
+
             // === THROTTLED SCROLL HANDLER ===
             let scrollRAF = null;
             let lastScrollTime = 0;
@@ -777,6 +871,11 @@ const LocalImageGalleryNode = {
                 clearTimeout(searchTimeout);
                 clearTimeout(sizeSliderTimeout);
                 
+                // Remove paste listener
+                if (els.container) {
+                    els.container.removeEventListener('paste', handlePaste, true);
+                }
+                
                 state.elements = {};
                 state.availableImages = [];
                 
@@ -829,6 +928,20 @@ const LocalImageGalleryNode = {
                 .localimage-root .localimage-selected-display .selected-name { 
                     color: #00FFC9; font-weight: bold; font-size: 15px; flex-grow: 1;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                .localimage-root .localimage-selected-display .paste-hint {
+                    font-size: 11px;
+                    color: #666;
+                    margin-left: auto;
+                    padding: 2px 8px;
+                    background: #2a2a2a;
+                    border-radius: 4px;
+                    border: 1px solid #3a3a3a;
+                    cursor: help;
+                }
+                .localimage-root .localimage-container:focus-within .paste-hint {
+                    color: #00FFC9;
+                    border-color: #00FFC9;
                 }
                 .localimage-root .localimage-controls { 
                     display: flex; padding: 8px; gap: 8px; align-items: center; 
