@@ -145,8 +145,8 @@ const LocalImageGalleryNode = {
                             <span class="size-label size-label-small">🖼️</span>
                             <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
                             <span class="size-label size-label-large">🖼️</span>
-                            <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
                             <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
+                            <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
                             <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
                         </div>
                         <div class="localimage-gallery">
