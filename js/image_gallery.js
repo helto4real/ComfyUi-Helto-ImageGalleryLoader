@@ -1,5 +1,8 @@
+// image_gallery.js
+
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { folderManager } from "./folder_manager.js"; 
 
 const LocalImageGalleryNode = {
     name: "LocalImageGallery",
@@ -43,7 +46,11 @@ const LocalImageGalleryNode = {
                 availableImages: [],
                 availableFolders: [],
                 selectedImage: "",
+                selectedImageSource: "", 
+                selectedOriginalName: "",  
                 currentFolder: "",
+                currentSourceFolder: "",   
+                availableSourceFolders: [], 
                 metadataFilter: "all",
                 sortOrder: "name",
                 previewSize: 110,
@@ -82,6 +89,12 @@ const LocalImageGalleryNode = {
             selectionWidget.draw = () => {};
             selectionWidget.computeSize = () => [0, 0];
 
+            const sourceFolderWidget = this.addWidget("hidden_text", "source_folder",
+                this.properties.source_folder || "", () => {}, { multiline: false });
+            sourceFolderWidget.serializeValue = () => node.properties["source_folder"] || "";
+            sourceFolderWidget.draw = () => {};
+            sourceFolderWidget.computeSize = () => [0, 0];
+
             // Create container
             const widgetContainer = document.createElement("div");
             widgetContainer.className = "localimage-container-wrapper";
@@ -103,8 +116,8 @@ const LocalImageGalleryNode = {
                         </div>
                         <div class="localimage-controls">
                             <input type="text" class="search-input" placeholder="🔍 Search images...">
-                            <select class="folder-filter-select" title="Filter by folder">
-                                <option value="">All Folders</option>
+                            <select class="source-folder-select" title="Source folder">
+                                <option value="">Loading...</option>
                             </select>
                             <select class="metadata-filter-select" title="Filter by metadata">
                                 <option value="all">All</option>
@@ -123,6 +136,7 @@ const LocalImageGalleryNode = {
                             <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
                             <span class="size-label size-label-large">🖼️</span>
                             <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
+                            <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
                             <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
                         </div>
                         <div class="localimage-gallery">
@@ -142,7 +156,6 @@ const LocalImageGalleryNode = {
             els.searchInput = widgetContainer.querySelector(".search-input");
             els.selectedName = widgetContainer.querySelector(".selected-name");
             els.refreshBtn = widgetContainer.querySelector(".refresh-btn");
-            els.folderSelect = widgetContainer.querySelector(".folder-filter-select");
             els.metadataSelect = widgetContainer.querySelector(".metadata-filter-select");
             els.sortSelect = widgetContainer.querySelector(".sort-order-select");
             els.selectedDisplay = widgetContainer.querySelector(".localimage-selected-display");
@@ -151,6 +164,8 @@ const LocalImageGalleryNode = {
             els.sizeControl = widgetContainer.querySelector(".localimage-size-control");
             els.loadImageBtn = widgetContainer.querySelector(".load-image-btn");
             els.fileInput = widgetContainer.querySelector(".file-input-hidden");
+            els.sourceSelect = widgetContainer.querySelector(".source-folder-select");
+            els.folderManagerBtn = widgetContainer.querySelector(".folder-manager-btn");
 
             const cacheHeights = () => {
                 if (els.controls) state.cachedHeights.controls = els.controls.offsetHeight;
@@ -158,10 +173,11 @@ const LocalImageGalleryNode = {
             };
 
             // === API FUNCTIONS ===
-            const getImages = async (page = 1, search = "", folder = "", metadataFilter = "all", sortOrder = "name") => {
+            const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name") => {
                 state.isLoading = true;
                 try {
-                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&folder=${encodeURIComponent(folder)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}`;
+                    const sourceEncoded = encodeURIComponent(state.currentSourceFolder || '');
+                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}&source=${sourceEncoded}`;
                     const response = await api.fetchApi(url);
                     const data = await response.json();
                     state.totalPages = data.total_pages || 1;
@@ -177,13 +193,20 @@ const LocalImageGalleryNode = {
 
             const updateSelection = () => {
                 node.setProperty("selected_image", state.selectedImage);
+                node.setProperty("source_folder", state.currentSourceFolder);
+                node.setProperty("actual_source", state.selectedImageSource || "");  // Store actual source
+                
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
+                
+                const sourceWidget = node.widgets.find(w => w.name === "source_folder");
+                if (sourceWidget) sourceWidget.value = state.selectedImageSource || state.currentSourceFolder;
 
-                // Add the ComfyUI\input\ prefix for display
-                const displayName = state.selectedImage 
-                    ? `ComfyUI\\input\\${state.selectedImage}` 
-                    : "None";
+                // Update display name
+                let displayName = "None";
+                if (state.selectedImage) {
+                    displayName = state.selectedImage;
+                }
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
 
@@ -194,7 +217,8 @@ const LocalImageGalleryNode = {
 
                 LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
                     selected_image: state.selectedImage,
-                    current_folder: state.currentFolder,
+                    current_source_folder: state.currentSourceFolder,
+                    selected_image_source: state.selectedImageSource,
                     metadata_filter: state.metadataFilter,
                     sort_order: state.sortOrder,
                     preview_size: state.previewSize
@@ -214,6 +238,46 @@ const LocalImageGalleryNode = {
                 });
                 els.folderSelect.appendChild(fragment);
                 els.folderSelect.value = currentVal;
+            };
+
+            const loadSourceFolders = async () => {
+                try {
+                    const response = await api.fetchApi("/imagegallery/get_source_folders");
+                    const data = await response.json();
+                    state.availableSourceFolders = data.folders || [];
+                    renderSourceFolders();
+                } catch (error) {
+                    console.error("Failed to load source folders:", error);
+                }
+            };
+
+            const renderSourceFolders = () => {
+                const currentVal = state.currentSourceFolder;
+                els.sourceSelect.innerHTML = '';
+                
+                // Add "All Folders" option first
+                const allOption = document.createElement('option');
+                allOption.value = '__ALL__';
+                allOption.textContent = '📂 All Folders';
+                allOption.title = 'Show images from all configured folders';
+                els.sourceSelect.appendChild(allOption);
+                
+                // Add individual folders
+                state.availableSourceFolders.forEach((folder, index) => {
+                    const option = document.createElement('option');
+                    option.value = folder.path;
+                    option.textContent = folder.name + (folder.is_default ? ' (default)' : '');
+                    option.title = folder.path;
+                    els.sourceSelect.appendChild(option);
+                });
+                
+                // Restore selection
+                if (currentVal && (currentVal === '__ALL__' || state.availableSourceFolders.some(f => f.path === currentVal))) {
+                    els.sourceSelect.value = currentVal;
+                } else if (state.availableSourceFolders.length > 0) {
+                    els.sourceSelect.value = state.availableSourceFolders[0].path;
+                    state.currentSourceFolder = state.availableSourceFolders[0].path;
+                }
             };
 
             const EMPTY_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSIjMjIyIi8+CjxwYXRoIGQ9Ik0zNSA2NUw0NSA1MEw1NSA2MEw2NSA0NUw3NSA2NUgzNVoiIGZpbGw9IiM0NDQiLz4KPGNpcmNsZSBjeD0iNjUiIGN5PSIzNSIgcj0iOCIgZmlsbD0iIzQ0NCIvPgo8L3N2Zz4=';
@@ -303,8 +367,13 @@ const LocalImageGalleryNode = {
                     const img = filteredImages[i];
                     const card = document.createElement("div");
                     card.className = "localimage-image-card";
-                    if (state.selectedImage === img.name) card.classList.add("selected");
+                    if (state.selectedImage === img.original_name && 
+                        (!state.selectedImageSource || state.selectedImageSource === img.source)) {
+                        card.classList.add("selected");
+                    }
                     card.dataset.imageName = img.name;
+                    card.dataset.originalName = img.original_name || img.name;
+                    card.dataset.imageSource = img.source || "";
                     card.dataset.index = i;
                     card.title = img.name;
                     card.style.height = `${state.cardHeight}px`;
@@ -347,12 +416,18 @@ const LocalImageGalleryNode = {
                 if (!card) return;
                 
                 const imageName = card.dataset.imageName;
+                const imageSource = card.dataset.imageSource || "";
+                const originalName = card.dataset.originalName || imageName;
                 
                 // Toggle: if already selected, deselect; otherwise select
                 if (state.selectedImage === imageName) {
                     state.selectedImage = "";
+                    state.selectedImageSource = "";
+                    state.selectedOriginalName = "";
                 } else {
-                    state.selectedImage = imageName;
+                    state.selectedImage = originalName;  // Use original name for loading
+                    state.selectedImageSource = imageSource;  // Store actual source folder
+                    state.selectedOriginalName = originalName;
                 }
                 
                 updateSelection();
@@ -375,18 +450,19 @@ const LocalImageGalleryNode = {
                     state.visibleRange = { start: 0, end: 0 };
                 }
                 
-                const { images, folders } = await getImages(pageToFetch, els.searchInput.value, state.currentFolder, state.metadataFilter, state.sortOrder);
+                // REMOVED folder parameter
+                const { images, folders } = await getImages(
+                    pageToFetch, 
+                    els.searchInput.value, 
+                    state.metadataFilter, 
+                    state.sortOrder
+                );
 
                 if (append) {
                     const existingNames = new Set(state.availableImages.map(i => i.name));
                     state.availableImages.push(...(images || []).filter(i => !existingNames.has(i.name)));
                 } else {
                     state.availableImages = images || [];
-                    if (!state.foldersRendered && folders?.length > 0) {
-                        state.availableFolders = folders;
-                        renderFolders(folders);
-                        state.foldersRendered = true;
-                    }
                     els.gallery.scrollTop = 0;
                 }
                 
@@ -525,11 +601,6 @@ const LocalImageGalleryNode = {
                 fetchAndRender(false, true);
             });
 
-            els.folderSelect.addEventListener("change", () => {
-                state.currentFolder = els.folderSelect.value;
-                fetchAndRender(false);
-            });
-
             els.metadataSelect.addEventListener("change", () => {
                 state.metadataFilter = els.metadataSelect.value;
                 fetchAndRender(false);
@@ -575,6 +646,21 @@ const LocalImageGalleryNode = {
                 }
             });
 
+            // Source folder change
+            els.sourceSelect.addEventListener("change", () => {
+                state.currentSourceFolder = els.sourceSelect.value;
+                fetchAndRender(false);
+            });
+
+            // Folder Manager button
+            els.folderManagerBtn.addEventListener("click", async () => {
+                folderManager.onFoldersChanged = (folders) => {
+                    state.availableSourceFolders = folders;
+                    renderSourceFolders();
+                };
+                await folderManager.open();
+            });
+
             // === OPTIMIZED RESIZE ===
             let resizeRAF = null;
             
@@ -606,7 +692,14 @@ const LocalImageGalleryNode = {
 
             // === INITIALIZATION ===
             this.initializeNode = async () => {
-                let initialState = { selected_image: "", current_folder: "", metadata_filter: "all", sort_order: "name", preview_size: 110 };
+                let initialState = { 
+                    selected_image: "", 
+                    current_folder: "", 
+                    current_source_folder: "",  // ADD THIS
+                    metadata_filter: "all", 
+                    sort_order: "name", 
+                    preview_size: 110 
+                };
                 
                 try {
                     const res = await api.fetchApi(
@@ -618,15 +711,30 @@ const LocalImageGalleryNode = {
                     console.error("LocalImageGallery: Failed to get initial UI state.", e); 
                 }
 
+                // Load source folders first
+                await loadSourceFolders();
+
                 state.selectedImage = initialState.selected_image || "";
                 state.currentFolder = initialState.current_folder || "";
+                state.currentSourceFolder = initialState.current_source_folder || 
+                    (state.availableSourceFolders.length > 0 ? state.availableSourceFolders[0].path : "");
                 state.metadataFilter = initialState.metadata_filter || "all";
                 state.sortOrder = initialState.sort_order || "name";
                 state.previewSize = initialState.preview_size || 110;
                 
+                // Set source folder selection
+                if (state.currentSourceFolder) {
+                    els.sourceSelect.value = state.currentSourceFolder;
+                }
+                
                 node.setProperty("selected_image", state.selectedImage);
+                node.setProperty("source_folder", state.currentSourceFolder); 
+                
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
+                
+                const sourceWidget = node.widgets.find(w => w.name === "source_folder"); 
+                if (sourceWidget) sourceWidget.value = state.currentSourceFolder; 
                 
                 const displayName = state.selectedImage 
                     ? `ComfyUI\\input\\${state.selectedImage}` 
@@ -683,6 +791,21 @@ const LocalImageGalleryNode = {
             const style = document.createElement('style');
             style.id = 'localimage-gallery-styles';
             style.textContent = `
+                .localimage-root .localimage-size-control .folder-manager-btn {
+                    background: #3a3a5a;
+                    color: #fff;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 6px 12px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    flex-shrink: 0;
+                    white-space: nowrap;
+                    transition: background 0.2s;
+                }
+                .localimage-root .localimage-size-control .folder-manager-btn:hover {
+                    background: #4a4a7a;
+                }
                 .localimage-root .localimage-container { 
                     display: flex; flex-direction: column; height: 100%; 
                     font-family: sans-serif; overflow: hidden; 
