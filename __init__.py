@@ -82,26 +82,23 @@ class ImageCache:
         if not os.path.exists(input_dir):
             return images, [], mtimes
         
-        for root, dirs, files in os.walk(input_dir):
-            rel_root = os.path.relpath(root, input_dir)
-            if rel_root != ".":
-                folders.add(rel_root)
-            
-            for filename in files:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in IMAGE_EXTENSIONS:
-                    if rel_root == ".":
-                        rel_path = filename
-                    else:
-                        rel_path = os.path.join(rel_root, filename)
-                    
-                    full_path = os.path.join(root, filename)
-                    try:
-                        mtimes[rel_path] = os.path.getmtime(full_path)
-                    except OSError:
-                        mtimes[rel_path] = 0
-                    
-                    images.append(rel_path)
+        # Only scan the top-level directory, not subdirectories
+        try:
+            for entry in os.scandir(input_dir):
+                if entry.is_dir():
+                    # Add subfolder to the list (for folder navigation if needed)
+                    folders.add(entry.name)
+                elif entry.is_file():
+                    ext = os.path.splitext(entry.name)[1].lower()
+                    if ext in IMAGE_EXTENSIONS:
+                        images.append(entry.name)
+                        try:
+                            mtimes[entry.name] = entry.stat().st_mtime
+                        except OSError:
+                            mtimes[entry.name] = 0
+        except OSError as e:
+            print(f"Error scanning directory {input_dir}: {e}")
+            return images, [], mtimes
         
         return sorted(images, key=lambda x: x.lower()), sorted(list(folders), key=lambda x: x.lower()), mtimes
     
