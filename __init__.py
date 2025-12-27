@@ -26,7 +26,7 @@ except ImportError:
 NODE_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_STATE_FILE = os.path.join(NODE_DIR, "image_gallery_ui_state.json")
 CACHE_DIR = os.path.join(NODE_DIR, "thumbnail_cache")
-IMAGE_EXTENSIONS = frozenset(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff'])
+IMAGE_EXTENSIONS = frozenset(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff'])
 CUSTOM_FOLDERS_FILE = os.path.join(NODE_DIR, "custom_source_folders.json")
 
 WEB_DIRECTORY = "./js"
