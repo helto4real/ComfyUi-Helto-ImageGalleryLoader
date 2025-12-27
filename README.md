@@ -11,10 +11,15 @@ Select the node called **Image Gallery Loader**.
 
 ## Installation
 
-Navigate to the **ComfyUI/custom_nodes** folder, [open cmd](https://www.youtube.com/watch?v=bgSSJQolR0E&t=47s) and run:
+Navigate to the **ComfyUI\custom_nodes** folder, [open cmd](https://www.youtube.com/watch?v=bgSSJQolR0E&t=47s) and run:
 
 ```bash
 git clone https://github.com/BigStationW/ComfyUi-ImageGalleryLoader
 ```
 
+Navigate to the **ComfyUI\custom_nodes\ComfyUi-ImageGalleryLoader** folder, open cmd and run:
+
+```bash
+..\..\..\python_embeded\python.exe -s -m pip install -r "requirements.txt"
+```
 Restart ComfyUI after installation.
