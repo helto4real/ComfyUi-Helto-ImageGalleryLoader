@@ -342,11 +342,10 @@ def get_thumbnail_path(image_path):
     return os.path.join(CACHE_DIR, f"{cache_key}.webp")
 
 
-def generate_thumbnail(image_path, max_size=200):
+def generate_thumbnail(image_path, max_size=400):  # Doubled from 200
     """Generate and cache a thumbnail."""
     thumb_path = get_thumbnail_path(image_path)
     
-    # Return cached thumbnail if exists
     if os.path.exists(thumb_path):
         return thumb_path
     
@@ -355,7 +354,6 @@ def generate_thumbnail(image_path, max_size=200):
             img = ImageOps.exif_transpose(img)
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
-            # Convert to RGB if necessary
             if img.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', img.size, (30, 30, 30))
                 if img.mode == 'P':
@@ -365,7 +363,8 @@ def generate_thumbnail(image_path, max_size=200):
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
             
-            img.save(thumb_path, 'WEBP', quality=80)
+            # Quality 92, method 4 for good speed/quality balance
+            img.save(thumb_path, 'WEBP', quality=92, method=4)
             return thumb_path
     except Exception as e:
         print(f"Error generating thumbnail for {image_path}: {e}")
