@@ -15,6 +15,13 @@ from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import io
+try:
+    from send2trash import send2trash
+    HAS_SEND2TRASH = True
+except ImportError:
+    HAS_SEND2TRASH = False
+    print("Warning: send2trash not installed. Deleted images will be permanently removed.")
+    print("Install with: pip install send2trash")
 
 NODE_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_STATE_FILE = os.path.join(NODE_DIR, "image_gallery_ui_state.json")
@@ -674,7 +681,69 @@ async def add_source_folder(request):
         import traceback
         print(f"Error adding source folder: {traceback.format_exc()}")
         return web.json_response({"error": str(e)}, status=500)
-
+    
+@server.PromptServer.instance.routes.post("/imagegallery/delete_image")
+async def delete_image(request):
+    """Delete an image from the gallery (moves to recycle bin)."""
+    try:
+        data = await request.json()
+        image_name = data.get("image", "").strip()
+        source_folder = data.get("source", "").strip()
+        
+        if not image_name:
+            return web.json_response({"error": "Image name is required"}, status=400)
+        
+        # Determine base directory
+        if source_folder:
+            folders = load_source_folders()
+            source_norm = os.path.normpath(source_folder)
+            valid_source = any(os.path.normpath(f.get('path', '')) == source_norm for f in folders)
+            
+            if valid_source and os.path.exists(source_folder) and os.path.isdir(source_folder):
+                input_dir = source_folder
+            else:
+                input_dir = folder_paths.get_input_directory()
+        else:
+            input_dir = folder_paths.get_input_directory()
+        
+        # Build and validate path
+        image_path = os.path.normpath(os.path.join(input_dir, image_name))
+        
+        # Security check - ensure path is within allowed directory
+        if not image_path.startswith(os.path.normpath(input_dir)):
+            return web.json_response({"error": "Invalid image path"}, status=403)
+        
+        if not os.path.exists(image_path):
+            return web.json_response({"error": "Image not found"}, status=404)
+        
+        if not os.path.isfile(image_path):
+            return web.json_response({"error": "Path is not a file"}, status=400)
+        
+        # Delete thumbnail cache first (before moving original)
+        thumb_path = get_thumbnail_path(image_path)
+        if os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)  # Thumbnail can be permanently deleted
+            except:
+                pass
+        
+        # Move to recycle bin or delete permanently
+        if HAS_SEND2TRASH:
+            send2trash(image_path)
+            method = "recycled"
+        else:
+            os.remove(image_path)
+            method = "deleted"
+        
+        # Invalidate cache
+        _image_cache.invalidate()
+        
+        return web.json_response({"status": "ok", "message": f"Image {method}: {image_name}", "method": method})
+        
+    except Exception as e:
+        import traceback
+        print(f"Error deleting image: {traceback.format_exc()}")
+        return web.json_response({"error": str(e)}, status=500)
 
 @server.PromptServer.instance.routes.post("/imagegallery/remove_source_folder")
 async def remove_source_folder(request):
