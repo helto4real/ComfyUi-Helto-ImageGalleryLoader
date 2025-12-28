@@ -85,6 +85,13 @@ const LocalImageGalleryNode = {
             const node = this;
             const state = this._gallery;
 
+            const originalConfigure = this.configure;
+            this.configure = function(data) {
+                const result = originalConfigure?.apply(this, arguments);
+    
+                return result;
+            };
+
             // Hidden widgets
             const galleryIdWidget = this.addWidget("hidden_text", "image_gallery_unique_id_widget", 
                 this.properties.image_gallery_unique_id, () => {}, {});
@@ -94,16 +101,18 @@ const LocalImageGalleryNode = {
 
             const selectionWidget = this.addWidget("hidden_text", "selected_image",
                 this.properties.selected_image || "", () => {}, { multiline: false });
-            selectionWidget.serializeValue = () => node.properties["selected_image"] || "";
-            selectionWidget.draw = () => {};
-            selectionWidget.computeSize = () => [0, 0];
+            selectionWidget.serializeValue = () => {
+                const val = node.properties["selected_image"] || "";
+                return val;
+            };
 
             const sourceFolderWidget = this.addWidget("hidden_text", "source_folder",
                 this.properties.source_folder || "", () => {}, { multiline: false });
-            sourceFolderWidget.serializeValue = () => node.properties["source_folder"] || "";
-            sourceFolderWidget.draw = () => {};
-            sourceFolderWidget.computeSize = () => [0, 0];
-
+            sourceFolderWidget.serializeValue = () => {
+                const val = node.properties["source_folder"] || "";
+                return val;
+            };
+            
             // Create container
             const widgetContainer = document.createElement("div");
             widgetContainer.className = "localimage-container-wrapper";
@@ -122,7 +131,6 @@ const LocalImageGalleryNode = {
                         <div class="localimage-selected-display">
                             <span class="label">Selected:</span>
                             <span class="selected-name" title="">None</span>
-                            <span class="paste-hint" title="Click gallery and press Ctrl+V to paste">📋</span>
                         </div>
                         <div class="localimage-controls">
                             <input type="text" class="search-input" placeholder="🔍 Search images...">
@@ -556,7 +564,7 @@ const LocalImageGalleryNode = {
                     return;
                 }
                 
-                state.visibleRange = { start: startIndex, end: endIndex };
+                state.visibleRange = { start: startIndex, end: endIndex }
                 
                 const topOffset = startRow * rowHeight;
                 
@@ -570,14 +578,21 @@ const LocalImageGalleryNode = {
                 
                 const imageHeight = Math.round(state.previewSize * 0.9);
                 
+                let foundSelectedCard = false;
+                
                 for (let i = startIndex; i < endIndex; i++) {
                     const img = filteredImages[i];
                     const card = document.createElement("div");
                     card.className = "localimage-image-card";
-                    if (state.selectedImage === img.original_name && 
-                        (!state.selectedImageSource || state.selectedImageSource === img.source)) {
+                    
+                    const isMatch = state.selectedImage === img.original_name && 
+                        (!state.selectedImageSource || state.selectedImageSource === img.source);
+                    
+                    if (isMatch) {
                         card.classList.add("selected");
+                        foundSelectedCard = true;
                     }
+                    
                     card.dataset.imageName = img.name;
                     card.dataset.originalName = img.original_name || img.name;
                     card.dataset.imageSource = img.source || "";
@@ -603,7 +618,7 @@ const LocalImageGalleryNode = {
                     
                     fragment.appendChild(card);
                 }
-                
+                 
                 const bottomOffset = totalHeight - (endRow * rowHeight);
                 if (bottomOffset > 0) {
                     const bottomSpacer = document.createElement('div');
@@ -615,6 +630,7 @@ const LocalImageGalleryNode = {
                 
                 els.viewport.innerHTML = '';
                 els.viewport.appendChild(fragment);
+                
             };
 
             // Event delegation for card clicks - TOGGLE SELECTION
@@ -739,7 +755,6 @@ const LocalImageGalleryNode = {
                         const uploadedName = await uploadImage(file);
                         if (uploadedName) {
                             lastUploadedName = uploadedName;
-                            console.log(`Uploaded: ${uploadedName}`);
                         }
                     }
                     
@@ -883,11 +898,17 @@ const LocalImageGalleryNode = {
 
             els.metadataSelect.addEventListener("change", () => {
                 state.metadataFilter = els.metadataSelect.value;
+                node.setProperty("metadata_filter", state.metadataFilter);
+                LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
+                    metadata_filter: state.metadataFilter 
+                });
                 fetchAndRender(false);
             });
 
             els.sortSelect.addEventListener("change", () => {
                 state.sortOrder = els.sortSelect.value;
+                node.setProperty("sort_order", state.sortOrder);
+                
                 LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
                     sort_order: state.sortOrder 
                 });
@@ -901,6 +922,8 @@ const LocalImageGalleryNode = {
                 
                 clearTimeout(sizeSliderTimeout);
                 sizeSliderTimeout = setTimeout(() => {
+                    node.setProperty("preview_size", state.previewSize);
+                    
                     LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
                         preview_size: state.previewSize 
                     });
@@ -965,35 +988,45 @@ const LocalImageGalleryNode = {
                 }
             };
 
-            this.initializeNode = async () => {
+            this.initializeNode = async () => {    
+                const existingSelectedImage = node.properties?.selected_image || "";
+                const existingSourceFolder = node.properties?.source_folder || "";
+                const existingActualSource = node.properties?.actual_source || "";
+                
                 let initialState = { 
                     selected_image: "", 
                     current_folder: "", 
                     current_source_folder: "",
+                    selected_image_source: "",
                     metadata_filter: "all", 
                     sort_order: "name", 
                     preview_size: 110 
                 };
                 
                 try {
-                    const res = await api.fetchApi(
-                        `/imagegallery/get_ui_state?node_id=${node.id}&gallery_id=${node.properties.image_gallery_unique_id}`
-                    );
+                    const url = `/imagegallery/get_ui_state?node_id=${node.id}&gallery_id=${node.properties.image_gallery_unique_id}`;
+                    const res = await api.fetchApi(url);
                     const loadedState = await res.json();
                     initialState = { ...initialState, ...loadedState };
                 } catch(e) { 
-                    console.error("LocalImageGallery: Failed to get initial UI state.", e); 
+                    console.error("[Gallery Debug] Failed to get initial UI state:", e); 
                 }
 
                 await loadSourceFolders();
 
-                state.selectedImage = initialState.selected_image || "";
-                state.currentFolder = initialState.current_folder || "";
-                state.currentSourceFolder = initialState.current_source_folder || 
+                state.selectedImage = existingSelectedImage || initialState.selected_image || "";
+                state.selectedImageSource = existingActualSource || existingSourceFolder || initialState.selected_image_source || "";
+                state.currentSourceFolder = existingSourceFolder || initialState.current_source_folder || 
                     (state.availableSourceFolders.length > 0 ? state.availableSourceFolders[0].path : "");
-                state.metadataFilter = initialState.metadata_filter || "all";
-                state.sortOrder = initialState.sort_order || "name";
-                state.previewSize = initialState.preview_size || 110;
+                
+
+                // Priority: 1. Node Properties (Paste/Save), 2. Server State (Reload), 3. Default
+                state.metadataFilter = node.properties.metadata_filter || initialState.metadata_filter || "all";
+                state.sortOrder = node.properties.sort_order || initialState.sort_order || "name";
+
+                // Handle size carefully (parse int)
+                const propSize = node.properties.preview_size ? parseInt(node.properties.preview_size) : null;
+                state.previewSize = propSize || initialState.preview_size || 110;
                 
                 if (state.currentSourceFolder) {
                     els.sourceSelect.value = state.currentSourceFolder;
@@ -1001,25 +1034,52 @@ const LocalImageGalleryNode = {
                 
                 node.setProperty("selected_image", state.selectedImage);
                 node.setProperty("source_folder", state.currentSourceFolder); 
+                node.setProperty("actual_source", state.selectedImageSource);
                 
                 const widget = node.widgets.find(w => w.name === "selected_image");
                 if (widget) widget.value = state.selectedImage;
                 
                 const sourceWidget = node.widgets.find(w => w.name === "source_folder"); 
-                if (sourceWidget) sourceWidget.value = state.currentSourceFolder; 
-                
-                const displayName = state.selectedImage 
-                    ? `ComfyUI\\input\\${state.selectedImage}` 
-                    : "None";
+                if (sourceWidget) sourceWidget.value = state.selectedImageSource || state.currentSourceFolder; 
+
+                let displayName = "None";
+                if (state.selectedImage) {
+                    displayName = state.selectedImage;
+                }
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
-
+                
                 els.sizeSlider.value = state.previewSize;
                 updatePreviewSize(state.previewSize);
 
                 await fetchAndRender();
+
+                // === SCROLL TO SELECTED IMAGE ===
+                if (state.selectedImage) {
+                    const filteredImages = getFilteredImages();
+                    const selectedIndex = filteredImages.findIndex(img => 
+                        img.original_name === state.selectedImage
+                    );
+                    
+                    if (selectedIndex >= 0) {
+                        calculateGridMetrics();
+                        const row = Math.floor(selectedIndex / state.columnsCount);
+                        const rowHeight = state.cardHeight + 8;
+                        const targetScrollTop = Math.max(0, (row * rowHeight) - (els.gallery.clientHeight / 2) + (rowHeight / 2));
+
+                        
+                        setTimeout(() => {
+                            els.gallery.scrollTop = targetScrollTop;
+                            state.visibleRange = { start: 0, end: 0 };
+                            renderVisibleCards();
+                            
+                        }, 100);
+                    } else {
+                        console.log(`[Gallery Debug] WARNING: Selected image not found in list!`);
+                    }
+                }
                 
-                if (state.currentFolder && els.folderSelect.querySelector(`option[value="${state.currentFolder}"]`)) {
+                if (state.currentFolder && els.folderSelect?.querySelector(`option[value="${state.currentFolder}"]`)) {
                     els.folderSelect.value = state.currentFolder;
                 }
                 
@@ -1030,7 +1090,9 @@ const LocalImageGalleryNode = {
                 if (state.sortOrder) {
                     els.sortSelect.value = state.sortOrder;
                 }
+                
             };
+
 
             const originalOnRemoved = this.onRemoved;
             this.onRemoved = function() {
