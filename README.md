@@ -1,8 +1,6 @@
 # ComfyUi-ImageGalleryLoader
 
-An image gallery node that displays previews for images in the **ComfyUI\input** folder for easy selection.
-
-You can also load an image from your computer and it will be automatically added to the gallery.
+An image gallery node that displays previews for easy selection.
 
 ## Usage
 Select the node called **Image Gallery Loader**.
