@@ -1,4 +1,3 @@
-
 // image_gallery.js
 
 import { app } from "../../scripts/app.js";
@@ -279,7 +278,6 @@ const LocalImageGalleryNode = {
                     const result = await response.json();
                     
                     if (response.ok) {
-                        console.log(`Deleted: ${imageName} (${result.method || 'removed'})`);
                         
                         // If the deleted image was selected, clear selection
                         if (state.selectedImage === imageName) {
@@ -360,8 +358,15 @@ const LocalImageGalleryNode = {
                             
                             await fetchAndRender(false, false);
                             
+                            // Find the actual source from the newly fetched images
+                            const pastedImage = state.availableImages.find(img => 
+                                img.original_name === result.filename || img.name.includes(result.filename)
+                            );
+                            
                             state.selectedImage = result.filename;
-                            state.selectedImageSource = state.currentSourceFolder;
+                            state.selectedOriginalName = result.filename;
+                            state.selectedImageSource = pastedImage ? pastedImage.source : state.currentSourceFolder;
+                            
                             updateSelection();
                             
                             setTimeout(() => {
@@ -370,7 +375,6 @@ const LocalImageGalleryNode = {
                                     selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                 }
                             }, 100);
-                            
                         } else {
                             console.error('Paste failed:', result.error || 'Unknown error');
                             alert('Failed to paste image: ' + (result.error || 'Unknown error'));
@@ -586,8 +590,8 @@ const LocalImageGalleryNode = {
                     const card = document.createElement("div");
                     card.className = "localimage-image-card";
                     
-                    const isMatch = state.selectedImage === img.original_name && 
-                        (!state.selectedImageSource || state.selectedImageSource === img.source);
+                    const isMatch = (state.selectedImage === img.original_name || state.selectedImage === img.name) && 
+                        (!state.selectedImageSource || state.selectedImageSource === img.source || img.source === state.currentSourceFolder);
                     
                     if (isMatch) {
                         card.classList.add("selected");
@@ -838,8 +842,15 @@ const LocalImageGalleryNode = {
                         
                         await fetchAndRender(false, false);
                         
+                        // Find the actual source from the newly fetched images
+                        const pastedImage = state.availableImages.find(img => 
+                            img.original_name === result.filename || img.name.includes(result.filename)
+                        );
+                        
                         state.selectedImage = result.filename;
-                        state.selectedImageSource = state.currentSourceFolder;
+                        state.selectedOriginalName = result.filename;
+                        state.selectedImageSource = pastedImage ? pastedImage.source : state.currentSourceFolder;
+                        
                         updateSelection();
                         
                         setTimeout(() => {
@@ -848,7 +859,7 @@ const LocalImageGalleryNode = {
                                 selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
                         }, 100);
-                        
+                                            
                     } else {
                         console.error('Paste failed:', result.error || 'Unknown error');
                     }
