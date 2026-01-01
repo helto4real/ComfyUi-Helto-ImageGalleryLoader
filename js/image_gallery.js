@@ -967,10 +967,18 @@ const LocalImageGalleryNode = {
                 if (!els.container) return;
                 
                 let topOffset = els.container.offsetTop;
-                if (topOffset < 20) topOffset += 40;
+                
+                // Fallback if DOM isn't ready
+                if (topOffset < 20) {
+                    topOffset = 65; 
+                }
 
-                const targetHeight = Math.max(0, node.size[1] - topOffset - 20);
-                els.container.style.cssText = `height: ${targetHeight}px; width: 100%;`;
+                const bottomPadding = 32; 
+                
+                const targetHeight = Math.max(0, node.size[1] - topOffset - bottomPadding);
+                
+                els.container.style.height = `${targetHeight}px`;
+                els.container.style.width = "100%";
                 
                 calculateGridMetrics();
                 state.visibleRange = { start: 0, end: 0 };
