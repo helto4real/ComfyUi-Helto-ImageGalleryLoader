@@ -1,3 +1,4 @@
+
 // image_gallery.js
 
 import { app } from "../../scripts/app.js";
@@ -642,7 +643,9 @@ const LocalImageGalleryNode = {
                 const imageSource = card.dataset.imageSource || "";
                 const originalName = card.dataset.originalName || imageName;
                 
-                if (state.selectedImage === imageName) {
+                // Compare using originalName since that's what we store
+                if (state.selectedImage === originalName && 
+                    (!state.selectedImageSource || state.selectedImageSource === imageSource)) {
                     state.selectedImage = "";
                     state.selectedImageSource = "";
                     state.selectedOriginalName = "";
