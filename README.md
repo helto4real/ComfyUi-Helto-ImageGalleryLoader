@@ -1,6 +1,6 @@
 # ComfyUi-ImageGalleryLoader
 
-An image gallery node that displays previews for easy selection.
+An image gallery custom node that displays previews for easy selection.
 
 ## Usage
 Select the node called **Image Gallery Loader**.
