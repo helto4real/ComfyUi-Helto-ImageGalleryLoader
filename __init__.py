@@ -996,7 +996,17 @@ class LocalImageGallery:
 
     @classmethod
     def IS_CHANGED(cls, selected_image="", source_folder="", **kwargs):
-        return f"{source_folder}:{selected_image}"
+        if not selected_image:
+            return ""
+        
+        root_dir = source_folder if source_folder else folder_paths.get_input_directory()
+        full_path = os.path.join(root_dir, selected_image)
+        
+        mtime = 0
+        if os.path.exists(full_path):
+            mtime = os.path.getmtime(full_path)
+
+        return f"{full_path}:{mtime}"
     
     @classmethod
     def VALIDATE_INPUTS(cls, selected_image="", source_folder="", **kwargs):
