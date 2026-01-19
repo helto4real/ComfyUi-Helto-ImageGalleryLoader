@@ -815,10 +815,11 @@ async def get_images_endpoint(request):
         for img_data in paginated_images:
             encoded_name = urllib.parse.quote(img_data['original_name'], safe='')
             encoded_source = urllib.parse.quote(img_data['source_folder'], safe='')
+            mtime = img_data.get('mtime', 0)
             image_info_list.append({
                 "name": img_data['name'],
                 "original_name": img_data['original_name'],
-                "preview_url": f"/imagegallery/thumb?filename={encoded_name}&source={encoded_source}",
+                "preview_url": f"/imagegallery/thumb?filename={encoded_name}&source={encoded_source}&t={int(mtime)}",
                 "source": img_data['source_folder']
             })
         
@@ -998,10 +999,8 @@ class LocalImageGallery:
     def IS_CHANGED(cls, selected_image="", source_folder="", **kwargs):
         if not selected_image:
             return ""
-        
         root_dir = source_folder if source_folder else folder_paths.get_input_directory()
         full_path = os.path.join(root_dir, selected_image)
-        
         mtime = 0
         if os.path.exists(full_path):
             mtime = os.path.getmtime(full_path)
