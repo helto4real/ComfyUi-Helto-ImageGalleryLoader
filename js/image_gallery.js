@@ -309,7 +309,6 @@ const LocalImageGalleryNode = {
 
             const pasteImageFromClipboard = async () => {
                 try {
-                    // Check if clipboard API is available
                     if (!navigator.clipboard || !navigator.clipboard.read) {
                         alert('Clipboard API not available. Please use Ctrl+V instead.');
                         return;
@@ -319,7 +318,6 @@ const LocalImageGalleryNode = {
                     let imageBlob = null;
                     
                     for (const item of clipboardItems) {
-                        // Check for image types
                         for (const type of item.types) {
                             if (type.startsWith('image/')) {
                                 imageBlob = await item.getType(type);
@@ -334,7 +332,6 @@ const LocalImageGalleryNode = {
                         return;
                     }
                     
-                    // Show loading state
                     const originalText = els.loadImageBtn.textContent;
                     els.loadImageBtn.textContent = "⏳ Pasting...";
                     els.loadImageBtn.disabled = true;
@@ -351,14 +348,21 @@ const LocalImageGalleryNode = {
                         const result = await response.json();
                         
                         if (response.ok && result.filename) {
+                            // Invalidate cache first
                             await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
                             
+                            // Reset state before fetching
                             state.currentFolder = "";
                             state.foldersRendered = false;
+                            state.visibleRange = { start: 0, end: 0 };
                             
+                            // Wait for fetch to complete
                             await fetchAndRender(false, false);
                             
-                            // Find the actual source from the newly fetched images
+                            // Small delay to ensure DOM is updated
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            
+                            // Find the pasted image in refreshed list
                             const pastedImage = state.availableImages.find(img => 
                                 img.original_name === result.filename || img.name.includes(result.filename)
                             );
@@ -369,12 +373,13 @@ const LocalImageGalleryNode = {
                             
                             updateSelection();
                             
+                            // Scroll to the new image
                             setTimeout(() => {
                                 const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-original-name="${result.filename}"]`);
                                 if (selectedCard) {
                                     selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                 }
-                            }, 100);
+                            }, 150);
                         } else {
                             console.error('Paste failed:', result.error || 'Unknown error');
                             alert('Failed to paste image: ' + (result.error || 'Unknown error'));
@@ -388,7 +393,6 @@ const LocalImageGalleryNode = {
                 } catch (error) {
                     console.error('Paste error:', error);
                     
-                    // Handle permission denied specifically
                     if (error.name === 'NotAllowedError') {
                         alert('Clipboard access denied. Please use Ctrl+V to paste, or grant clipboard permission.');
                     } else {
@@ -766,23 +770,30 @@ const LocalImageGalleryNode = {
                     }
                     
                     if (lastUploadedName) {
+                        // Invalidate cache first
                         await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
                         
+                        // Reset state before fetching
                         state.currentFolder = "";
-                        els.folderSelect.value = "";
                         state.foldersRendered = false;
+                        state.visibleRange = { start: 0, end: 0 };
                         
+                        // Wait for fetch to complete
                         await fetchAndRender(false, false);
+                        
+                        // Small delay to ensure DOM is updated
+                        await new Promise(resolve => setTimeout(resolve, 50));
                         
                         state.selectedImage = lastUploadedName;
                         updateSelection();
                         
+                        // Scroll to the new image
                         setTimeout(() => {
                             const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-image-name="${lastUploadedName}"]`);
                             if (selectedCard) {
                                 selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
-                        }, 100);
+                        }, 150);
                     }
                 } catch (error) {
                     console.error("Error during upload:", error);
@@ -835,14 +846,21 @@ const LocalImageGalleryNode = {
                     const result = await response.json();
                     
                     if (response.ok && result.filename) {
+                        // Invalidate cache first
                         await api.fetchApi("/imagegallery/invalidate_cache", { method: "POST" });
                         
+                        // Reset state before fetching
                         state.currentFolder = "";
                         state.foldersRendered = false;
+                        state.visibleRange = { start: 0, end: 0 };
                         
+                        // Wait for fetch to complete
                         await fetchAndRender(false, false);
                         
-                        // Find the actual source from the newly fetched images
+                        // Small delay to ensure DOM is updated
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                        
+                        // Find the pasted image in refreshed list
                         const pastedImage = state.availableImages.find(img => 
                             img.original_name === result.filename || img.name.includes(result.filename)
                         );
@@ -853,12 +871,13 @@ const LocalImageGalleryNode = {
                         
                         updateSelection();
                         
+                        // Scroll to the new image
                         setTimeout(() => {
                             const selectedCard = els.viewport.querySelector(`.localimage-image-card[data-original-name="${result.filename}"]`);
                             if (selectedCard) {
                                 selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
-                        }, 100);
+                        }, 150);
                                             
                     } else {
                         console.error('Paste failed:', result.error || 'Unknown error');
