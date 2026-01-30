@@ -932,10 +932,77 @@ async def get_preview_image(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+
+def cleanup_orphaned_thumbnails():
+    """Remove thumbnails for images that no longer exist."""
+    try:
+        if not os.path.exists(CACHE_DIR):
+            return
+        
+        # Get all cached thumbnail files
+        cached_files = set()
+        for filename in os.listdir(CACHE_DIR):
+            if filename.endswith('.webp'):
+                cached_files.add(filename)
+        
+        if not cached_files:
+            return
+        
+        # Get all valid source folders
+        folders = load_source_folders()
+        valid_dirs = [folder_paths.get_input_directory()]
+        for folder in folders:
+            path = folder.get('path', '')
+            if path and os.path.exists(path) and os.path.isdir(path):
+                valid_dirs.append(path)
+        
+        # Build set of existing image hashes
+        existing_hashes = set()
+        for input_dir in valid_dirs:
+            if not os.path.exists(input_dir):
+                continue
+            
+            try:
+                for entry in os.scandir(input_dir):
+                    if entry.is_file():
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in IMAGE_EXTENSIONS:
+                            # Generate the same hash that would be used for caching
+                            # The actual cache key is "{full_path}:{mtime}"
+                            full_path = os.path.join(input_dir, entry.name)
+                            try:
+                                mtime = entry.stat().st_mtime
+                            except OSError:
+                                mtime = 0
+                            cache_key = f"{full_path}:{mtime}"
+                            hash_name = hashlib.md5(cache_key.encode()).hexdigest()
+                            existing_hashes.add(f"{hash_name}.webp")
+            except OSError:
+                continue
+        
+        # Remove orphaned thumbnails
+        orphaned = cached_files - existing_hashes
+        removed_count = 0
+        for orphaned_file in orphaned:
+            try:
+                os.remove(os.path.join(CACHE_DIR, orphaned_file))
+                removed_count += 1
+            except OSError:
+                pass
+        
+        if removed_count > 0:
+            print(f"Cleaned up {removed_count} orphaned thumbnails")
+            
+    except Exception as e:
+        print(f"Error cleaning up thumbnails: {e}")
+
+
 @server.PromptServer.instance.routes.post("/imagegallery/invalidate_cache")
 async def invalidate_cache(request):
     """Endpoint to manually invalidate cache (called on refresh)."""
     _image_cache.invalidate()
+    # Clean up orphaned thumbnails in background
+    _executor.submit(cleanup_orphaned_thumbnails)
     return web.json_response({"status": "ok"})
 
 
