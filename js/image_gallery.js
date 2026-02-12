@@ -56,7 +56,9 @@ const LocalImageGalleryNode = {
                 availableFolders: [],
                 selectedImage: "",
                 selectedImageSource: "", 
-                selectedOriginalName: "",  
+                selectedOriginalName: "",
+                selectedImageWidth: 0,
+                selectedImageHeight: 0,
                 currentFolder: "",
                 currentSourceFolder: "",   
                 availableSourceFolders: [], 
@@ -70,7 +72,7 @@ const LocalImageGalleryNode = {
                 cardHeight: 140,
                 columnsCount: 4,
             };
-
+            
             if (!this.properties) this.properties = {};
             if (!this.properties.image_gallery_unique_id) {
                 this.properties.image_gallery_unique_id = "image-gallery-" + Math.random().toString(36).substring(2, 11);
@@ -434,6 +436,11 @@ const LocalImageGalleryNode = {
                 let displayName = "None";
                 if (state.selectedImage) {
                     displayName = state.selectedImage;
+                    
+                    // Add resolution if available
+                    if (state.selectedImageWidth && state.selectedImageHeight) {
+                        displayName += ` (${state.selectedImageWidth} × ${state.selectedImageHeight})`;
+                    }
                 }
                 els.selectedName.textContent = displayName;
                 els.selectedName.title = displayName;
@@ -605,6 +612,8 @@ const LocalImageGalleryNode = {
                     card.dataset.imageName = img.name;
                     card.dataset.originalName = img.original_name || img.name;
                     card.dataset.imageSource = img.source || "";
+                    card.dataset.imageWidth = img.width || 0;
+                    card.dataset.imageHeight = img.height || 0;
                     card.dataset.index = i;
                     card.title = img.name;
                     card.style.height = `${state.cardHeight}px`;
@@ -650,6 +659,8 @@ const LocalImageGalleryNode = {
                 const imageName = card.dataset.imageName;
                 const imageSource = card.dataset.imageSource || "";
                 const originalName = card.dataset.originalName || imageName;
+                const imageWidth = card.dataset.imageWidth;
+                const imageHeight = card.dataset.imageHeight;
                 
                 // Compare using originalName since that's what we store
                 if (state.selectedImage === originalName && 
@@ -657,10 +668,14 @@ const LocalImageGalleryNode = {
                     state.selectedImage = "";
                     state.selectedImageSource = "";
                     state.selectedOriginalName = "";
+                    state.selectedImageWidth = 0;
+                    state.selectedImageHeight = 0;
                 } else {
                     state.selectedImage = originalName;
                     state.selectedImageSource = imageSource;
                     state.selectedOriginalName = originalName;
+                    state.selectedImageWidth = imageWidth;
+                    state.selectedImageHeight = imageHeight;
                 }
                 
                 updateSelection();
@@ -1094,6 +1109,27 @@ const LocalImageGalleryNode = {
                 updatePreviewSize(state.previewSize);
 
                 await fetchAndRender();
+
+                // === RESTORE RESOLUTION FOR SELECTED IMAGE ===
+                if (state.selectedImage) {
+                    const filteredImages = getFilteredImages();
+                    const selectedImgData = filteredImages.find(img => 
+                        img.original_name === state.selectedImage
+                    );
+                    
+                    if (selectedImgData) {
+                        state.selectedImageWidth = selectedImgData.width || 0;
+                        state.selectedImageHeight = selectedImgData.height || 0;
+                        
+                        // Update display with resolution
+                        let displayName = state.selectedImage;
+                        if (state.selectedImageWidth && state.selectedImageHeight) {
+                            displayName += ` (${state.selectedImageWidth} × ${state.selectedImageHeight})`;
+                        }
+                        els.selectedName.textContent = displayName;
+                        els.selectedName.title = displayName;
+                    }
+                }
 
                 // === SCROLL TO SELECTED IMAGE ===
                 if (state.selectedImage) {
