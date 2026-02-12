@@ -782,7 +782,6 @@ async def get_images_endpoint(request):
         page = int(request.query.get('page', 1))
         per_page = int(request.query.get('per_page', 100))
         search = request.query.get('search', '').lower()
-        # REMOVED: folder parameter
         metadata_filter = request.query.get('metadata', 'all')
         sort_by = request.query.get('sort', 'name')
         source_folder = request.query.get('source', '')
@@ -797,10 +796,9 @@ async def get_images_endpoint(request):
             source_folder = urllib.parse.unquote(source_folder)
         
         all_images, all_folders, mtimes, used_input_dir = get_input_images_optimized(
-            "", metadata_filter, sort_by, source_folder  # Empty subfolder
+            "", metadata_filter, sort_by, source_folder
         )
         
-        # Filter by search term
         if search:
             all_images = [img for img in all_images if search in img['name'].lower()]
         
@@ -816,11 +814,23 @@ async def get_images_endpoint(request):
             encoded_name = urllib.parse.quote(img_data['original_name'], safe='')
             encoded_source = urllib.parse.quote(img_data['source_folder'], safe='')
             mtime = img_data.get('mtime', 0)
+            
+            # Get image dimensions
+            width, height = 0, 0
+            try:
+                full_path = os.path.join(img_data['source_folder'], img_data['original_name'])
+                with Image.open(full_path) as img:
+                    width, height = img.size
+            except Exception as e:
+                pass  # Keep as 0, 0 if unable to read
+            
             image_info_list.append({
                 "name": img_data['name'],
                 "original_name": img_data['original_name'],
                 "preview_url": f"/imagegallery/thumb?filename={encoded_name}&source={encoded_source}&t={int(mtime)}",
-                "source": img_data['source_folder']
+                "source": img_data['source_folder'],
+                "width": width,
+                "height": height
             })
         
         return web.json_response({
