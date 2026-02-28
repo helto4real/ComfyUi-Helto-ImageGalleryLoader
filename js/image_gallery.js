@@ -61,7 +61,9 @@ const LocalImageGalleryNode = {
                 selectedImageHeight: 0,
                 currentFolder: "",
                 currentSourceFolder: "",   
-                availableSourceFolders: [], 
+                availableSourceFolders: [],
+                currentSubfolder: "",
+                availableSubfolders: [], 
                 metadataFilter: "all",
                 sortOrder: "name",
                 recursive: false,
@@ -142,6 +144,9 @@ const LocalImageGalleryNode = {
                             <select class="source-folder-select" title="Source folder">
                                 <option value="">Loading...</option>
                             </select>
+                            <select class="subfolder-select" title="Filter by subfolder" disabled>
+                                <option value="">Loading...</option>
+                            </select>
                             <select class="metadata-filter-select" title="Filter by metadata">
                                 <option value="all">All</option>
                                 <option value="with">With metadata</option>
@@ -191,6 +196,7 @@ const LocalImageGalleryNode = {
             els.loadImageBtn = widgetContainer.querySelector(".load-image-btn");
             els.fileInput = widgetContainer.querySelector(".file-input-hidden");
             els.sourceSelect = widgetContainer.querySelector(".source-folder-select");
+            els.subfolderSelect = widgetContainer.querySelector(".subfolder-select");
             els.folderManagerBtn = widgetContainer.querySelector(".folder-manager-btn");
             els.previewModeToggle = widgetContainer.querySelector(".preview-mode-toggle");
             els.autoHideToggle = widgetContainer.querySelector(".auto-hide-toggle");
@@ -474,11 +480,12 @@ const LocalImageGalleryNode = {
             };
 
             // === API FUNCTIONS ===
-            const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name", recursive = false) => {
+            const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name", recursive = false, subfolder = "") => {
                 state.isLoading = true;
                 try {
                     const sourceEncoded = encodeURIComponent(state.currentSourceFolder || '');
-                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}&source=${sourceEncoded}&recursive=${recursive}`;
+                    const subfolderEncoded = encodeURIComponent(subfolder || '');
+                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}&source=${sourceEncoded}&recursive=${recursive}&subfolder=${subfolderEncoded}`;
                     const response = await api.fetchApi(url);
                     const data = await response.json();
                     state.totalPages = data.total_pages || 1;
@@ -587,6 +594,53 @@ const LocalImageGalleryNode = {
                 } else if (state.availableSourceFolders.length > 0) {
                     els.sourceSelect.value = state.availableSourceFolders[0].path;
                     state.currentSourceFolder = state.availableSourceFolders[0].path;
+                }
+            };
+
+            const loadSubfolders = async () => {
+                const sourceFolder = state.currentSourceFolder;
+                if (!sourceFolder || sourceFolder === '__ALL__') {
+                    state.availableSubfolders = [];
+                    renderSubfolders();
+                    return;
+                }
+                
+                try {
+                    const sourceEncoded = encodeURIComponent(sourceFolder);
+                    const response = await api.fetchApi(`/imagegallery/get_subfolders?source=${sourceEncoded}`);
+                    const data = await response.json();
+                    state.availableSubfolders = data.subfolders || [];
+                    renderSubfolders();
+                } catch (error) {
+                    console.error("Failed to load subfolders:", error);
+                    state.availableSubfolders = [];
+                    renderSubfolders();
+                }
+            };
+
+            const renderSubfolders = () => {
+                const currentVal = state.currentSubfolder;
+                els.subfolderSelect.innerHTML = '';
+                
+                els.subfolderSelect.disabled = !state.currentSourceFolder || state.currentSourceFolder === '__ALL__';
+                
+                const allOption = document.createElement('option');
+                allOption.value = '';
+                allOption.textContent = 'All Subfolders';
+                allOption.title = 'Show images from all subfolders';
+                els.subfolderSelect.appendChild(allOption);
+                
+                state.availableSubfolders.forEach((folder) => {
+                    const option = document.createElement('option');
+                    option.value = folder;
+                    option.textContent = folder.replace(/\\/g, '/');
+                    els.subfolderSelect.appendChild(option);
+                });
+                
+                if (currentVal && state.availableSubfolders.includes(currentVal)) {
+                    els.subfolderSelect.value = currentVal;
+                } else {
+                    state.currentSubfolder = "";
                 }
             };
 
@@ -831,7 +885,8 @@ const LocalImageGalleryNode = {
                     els.searchInput.value, 
                     state.metadataFilter, 
                     state.sortOrder,
-                    state.recursive
+                    state.recursive,
+                    state.currentSubfolder
                 );
 
                 if (append) {
@@ -1124,6 +1179,13 @@ const LocalImageGalleryNode = {
 
             els.sourceSelect.addEventListener("change", () => {
                 state.currentSourceFolder = els.sourceSelect.value;
+                state.currentSubfolder = "";
+                loadSubfolders();
+                fetchAndRender(false);
+            });
+
+            els.subfolderSelect.addEventListener("change", () => {
+                state.currentSubfolder = els.subfolderSelect.value;
                 fetchAndRender(false);
             });
 
@@ -1169,6 +1231,7 @@ const LocalImageGalleryNode = {
                     recursive: state.recursive 
                 });
                 
+                loadSubfolders();
                 fetchAndRender(false, true);
             });
 
@@ -1242,6 +1305,7 @@ const LocalImageGalleryNode = {
                 state.currentSourceFolder = existingSourceFolder || initialState.current_source_folder || 
                     (state.availableSourceFolders.length > 0 ? state.availableSourceFolders[0].path : "");
                 
+                await loadSubfolders();
 
                 // Priority: 1. Node Properties (Paste/Save), 2. Server State (Reload), 3. Default
                 state.metadataFilter = node.properties.metadata_filter || initialState.metadata_filter || "all";
