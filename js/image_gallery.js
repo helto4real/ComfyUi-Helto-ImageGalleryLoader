@@ -731,6 +731,17 @@ const LocalImageGalleryNode = {
                 const card = e.target.closest(".localimage-image-card");
                 if (!card) return;
                 
+                // Ctrl+click to preview
+                if (e.ctrlKey) {
+                    const imageData = {
+                        name: card.dataset.imageName,
+                        originalName: card.dataset.originalName || card.dataset.imageName,
+                        source: card.dataset.imageSource || state.currentSourceFolder
+                    };
+                    showPreviewModal(imageData);
+                    return;
+                }
+                
                 const imageName = card.dataset.imageName;
                 const imageSource = card.dataset.imageSource || "";
                 const originalName = card.dataset.originalName || imageName;
