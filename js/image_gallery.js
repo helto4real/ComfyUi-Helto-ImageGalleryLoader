@@ -67,6 +67,7 @@ const LocalImageGalleryNode = {
                 recursive: false,
                 previewSize: 110,
                 previewMode: "thumbnail",
+                autoHidePreview: true,
                 foldersRendered: false,
                 elements: {},
                 cachedHeights: { controls: 0, selectedDisplay: 0 },
@@ -158,6 +159,7 @@ const LocalImageGalleryNode = {
                               <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
                               <span class="size-label size-label-large">🖼️</span>
                               <button class="preview-mode-toggle" title="Toggle preview mode">🔍</button>
+                              <button class="auto-hide-toggle" title="Toggle auto-hide preview">👁️</button>
                               <button class="recursive-toggle" title="Include subfolders">📂</button>
                               <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
                               <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
@@ -191,6 +193,7 @@ const LocalImageGalleryNode = {
             els.sourceSelect = widgetContainer.querySelector(".source-folder-select");
             els.folderManagerBtn = widgetContainer.querySelector(".folder-manager-btn");
             els.previewModeToggle = widgetContainer.querySelector(".preview-mode-toggle");
+            els.autoHideToggle = widgetContainer.querySelector(".auto-hide-toggle");
             els.recursiveToggle = widgetContainer.querySelector(".recursive-toggle");
 
             const cacheHeights = () => {
@@ -530,7 +533,8 @@ const LocalImageGalleryNode = {
                     metadata_filter: state.metadataFilter,
                     sort_order: state.sortOrder,
                     preview_size: state.previewSize,
-                    preview_mode: state.previewMode
+                    preview_mode: state.previewMode,
+                    auto_hide_preview: state.autoHidePreview
                 });
             };
 
@@ -601,6 +605,16 @@ const LocalImageGalleryNode = {
                 
                 state.visibleRange = { start: 0, end: 0 };
                 renderVisibleCards();
+            };
+
+            const updatePreviewVisibility = () => {
+                if (!els.viewport) return;
+                
+                if (state.autoHidePreview) {
+                    els.viewport.classList.add('auto-hide-preview');
+                } else {
+                    els.viewport.classList.remove('auto-hide-preview');
+                }
             };
 
             const calculateGridMetrics = () => {
@@ -1015,6 +1029,18 @@ const LocalImageGalleryNode = {
                 els.container.focus();
             });
 
+            els.container.addEventListener('mouseenter', () => {
+                if (state.autoHidePreview && els.viewport) {
+                    els.viewport.classList.add('show-previews');
+                }
+            });
+
+            els.container.addEventListener('mouseleave', () => {
+                if (state.autoHidePreview && els.viewport) {
+                    els.viewport.classList.remove('show-previews');
+                }
+            });
+
             let scrollRAF = null;
             let lastScrollTime = 0;
             const SCROLL_THROTTLE = 16;
@@ -1122,6 +1148,18 @@ const LocalImageGalleryNode = {
                 renderVisibleCards();
             });
 
+            els.autoHideToggle.addEventListener("click", () => {
+                state.autoHidePreview = !state.autoHidePreview;
+                els.autoHideToggle.textContent = state.autoHidePreview ? "🫥" : "👁️";
+                els.autoHideToggle.title = state.autoHidePreview ? "Auto-hide: Previews hidden until hover" : "Always show previews";
+                
+                LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
+                    auto_hide_preview: state.autoHidePreview 
+                });
+                
+                updatePreviewVisibility();
+            });
+
             els.recursiveToggle.addEventListener("click", () => {
                 state.recursive = !state.recursive;
                 els.recursiveToggle.textContent = state.recursive ? "🔁" : "📂";
@@ -1184,7 +1222,8 @@ const LocalImageGalleryNode = {
                     sort_order: "name", 
                     recursive: false,
                     preview_size: 110,
-                    preview_mode: "thumbnail"
+                    preview_mode: "thumbnail",
+                    auto_hide_preview: true
                 };
                 
                 try {
@@ -1214,6 +1253,9 @@ const LocalImageGalleryNode = {
                 
                 // Handle preview mode
                 state.previewMode = node.properties.preview_mode || initialState.preview_mode || "thumbnail";
+                
+                // Handle auto-hide preview
+                state.autoHidePreview = initialState.auto_hide_preview !== undefined ? initialState.auto_hide_preview : true;
                 
                 // Handle recursive mode
                 state.recursive = initialState.recursive || false;
@@ -1245,6 +1287,11 @@ const LocalImageGalleryNode = {
                 // Initialize preview mode toggle
                 els.previewModeToggle.textContent = state.previewMode === "full" ? "🖼️" : "🔍";
                 els.previewModeToggle.title = state.previewMode === "full" ? "Show thumbnail previews" : "Show full image previews";
+
+                // Initialize auto-hide toggle
+                els.autoHideToggle.textContent = state.autoHidePreview ? "🫥" : "👁️";
+                els.autoHideToggle.title = state.autoHidePreview ? "Auto-hide: Previews hidden until hover" : "Always show previews";
+                updatePreviewVisibility();
 
                 // Initialize recursive toggle
                 els.recursiveToggle.textContent = state.recursive ? "🔁" : "📂";
@@ -1573,6 +1620,19 @@ const LocalImageGalleryNode = {
                     cursor: pointer; border: none;
                 }
                 
+                /* Auto-hide preview styles */
+                .localimage-root .localimage-gallery-viewport.auto-hide-preview .localimage-media-container img {
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                }
+                .localimage-root .localimage-gallery-viewport.auto-hide-preview.show-previews .localimage-media-container img,
+                .localimage-root .localimage-gallery-viewport.auto-hide-preview:hover .localimage-media-container img {
+                    opacity: 1;
+                }
+                .localimage-root .localimage-gallery-viewport.auto-hide-preview .localimage-image-card {
+                    transition: border-color 0.3s ease;
+                }
+                
                 /* Preview mode toggle button styles */
                 .localimage-root .localimage-size-control .preview-mode-toggle {
                     background: #444; color: #fff; border: none; border-radius: 4px;
@@ -1580,6 +1640,16 @@ const LocalImageGalleryNode = {
                     white-space: nowrap; transition: background 0.2s; margin-left: 4px;
                 }
                 .localimage-root .localimage-size-control .preview-mode-toggle:hover {
+                    background: #555;
+                }
+                
+                /* Auto-hide toggle button styles */
+                .localimage-root .localimage-size-control .auto-hide-toggle {
+                    background: #444; color: #fff; border: none; border-radius: 4px;
+                    padding: 6px 8px; cursor: pointer; font-size: 16px; flex-shrink: 0;
+                    white-space: nowrap; transition: background 0.2s; margin-left: 4px;
+                }
+                .localimage-root .localimage-size-control .auto-hide-toggle:hover {
                     background: #555;
                 }
                 
