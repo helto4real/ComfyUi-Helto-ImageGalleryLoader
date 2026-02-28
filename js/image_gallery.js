@@ -65,6 +65,7 @@ const LocalImageGalleryNode = {
                 metadataFilter: "all",
                 sortOrder: "name",
                 previewSize: 110,
+                previewMode: "thumbnail",
                 foldersRendered: false,
                 elements: {},
                 cachedHeights: { controls: 0, selectedDisplay: 0 },
@@ -151,14 +152,15 @@ const LocalImageGalleryNode = {
                             </select>
                             <button class="refresh-btn" title="Refresh image list">🔄</button>
                         </div>
-                        <div class="localimage-size-control">
-                            <span class="size-label size-label-small">🖼️</span>
-                            <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
-                            <span class="size-label size-label-large">🖼️</span>
-                            <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
-                            <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
-                            <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
-                        </div>
+                         <div class="localimage-size-control">
+                             <span class="size-label size-label-small">🖼️</span>
+                             <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
+                             <span class="size-label size-label-large">🖼️</span>
+                             <button class="preview-mode-toggle" title="Toggle preview mode">🔍</button>
+                             <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
+                             <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
+                             <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
+                         </div>
                         <div class="localimage-gallery">
                             <div class="localimage-gallery-viewport"></div>
                         </div>
@@ -186,6 +188,7 @@ const LocalImageGalleryNode = {
             els.fileInput = widgetContainer.querySelector(".file-input-hidden");
             els.sourceSelect = widgetContainer.querySelector(".source-folder-select");
             els.folderManagerBtn = widgetContainer.querySelector(".folder-manager-btn");
+            els.previewModeToggle = widgetContainer.querySelector(".preview-mode-toggle");
 
             const cacheHeights = () => {
                 if (els.controls) state.cachedHeights.controls = els.controls.offsetHeight;
@@ -462,7 +465,8 @@ const LocalImageGalleryNode = {
                     selected_image_source: state.selectedImageSource,
                     metadata_filter: state.metadataFilter,
                     sort_order: state.sortOrder,
-                    preview_size: state.previewSize
+                    preview_size: state.previewSize,
+                    preview_mode: state.previewMode
                 });
             };
 
@@ -622,9 +626,16 @@ const LocalImageGalleryNode = {
                         ? img.name.split(/[/\\]/).pop() 
                         : img.name;
 
+                    // Choose image URL based on preview mode
+                    const imageUrl = state.previewMode === "full" 
+                        ? img.preview_url.replace('/thumb?', '/preview?') 
+                        : img.preview_url;
+                    
+                    const objectFit = state.previewMode === "full" ? "contain" : "cover";
+
                     card.innerHTML = `
                         <div class="localimage-media-container" style="height: ${imageHeight}px;">
-                            <img src="${img.preview_url || EMPTY_IMAGE}" loading="lazy" decoding="async" alt="${displayName}">
+                            <img src="${imageUrl}" loading="lazy" decoding="async" alt="${displayName}" style="object-fit: ${objectFit};">
                         </div>
                         <div class="localimage-image-card-info">
                             <p>${displayName}</p>
@@ -1008,6 +1019,19 @@ const LocalImageGalleryNode = {
                 await folderManager.open();
             });
 
+            els.previewModeToggle.addEventListener("click", () => {
+                state.previewMode = state.previewMode === "thumbnail" ? "full" : "thumbnail";
+                els.previewModeToggle.textContent = state.previewMode === "full" ? "🖼️" : "🔍";
+                els.previewModeToggle.title = state.previewMode === "full" ? "Show thumbnail previews" : "Show full image previews";
+                
+                LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
+                    preview_mode: state.previewMode 
+                });
+                
+                state.visibleRange = { start: 0, end: 0 };
+                renderVisibleCards();
+            });
+
             let resizeRAF = null;
             
             const fitHeight = () => {
@@ -1056,7 +1080,8 @@ const LocalImageGalleryNode = {
                     selected_image_source: "",
                     metadata_filter: "all", 
                     sort_order: "name", 
-                    preview_size: 110 
+                    preview_size: 110,
+                    preview_mode: "thumbnail"
                 };
                 
                 try {
@@ -1084,6 +1109,9 @@ const LocalImageGalleryNode = {
                 const propSize = node.properties.preview_size ? parseInt(node.properties.preview_size) : null;
                 state.previewSize = propSize || initialState.preview_size || 110;
                 
+                // Handle preview mode
+                state.previewMode = node.properties.preview_mode || initialState.preview_mode || "thumbnail";
+                
                 if (state.currentSourceFolder) {
                     els.sourceSelect.value = state.currentSourceFolder;
                 }
@@ -1107,6 +1135,10 @@ const LocalImageGalleryNode = {
                 
                 els.sizeSlider.value = state.previewSize;
                 updatePreviewSize(state.previewSize);
+
+                // Initialize preview mode toggle
+                els.previewModeToggle.textContent = state.previewMode === "full" ? "🖼️" : "🔍";
+                els.previewModeToggle.title = state.previewMode === "full" ? "Show thumbnail previews" : "Show full image previews";
 
                 await fetchAndRender();
 
@@ -1356,17 +1388,14 @@ const LocalImageGalleryNode = {
                     cursor: pointer; border: none;
                 }
                 
-                /* Load image button styles */
-                .localimage-root .localimage-size-control .load-image-btn {
-                    background: #2a6a4a; color: #fff; border: none; border-radius: 4px;
-                    padding: 6px 12px; cursor: pointer; font-size: 14px; flex-shrink: 0;
-                    white-space: nowrap; transition: background 0.2s;
+                /* Preview mode toggle button styles */
+                .localimage-root .localimage-size-control .preview-mode-toggle {
+                    background: #444; color: #fff; border: none; border-radius: 4px;
+                    padding: 6px 8px; cursor: pointer; font-size: 16px; flex-shrink: 0;
+                    white-space: nowrap; transition: background 0.2s; margin-left: 4px;
                 }
-                .localimage-root .localimage-size-control .load-image-btn:hover {
-                    background: #3a8a5a;
-                }
-                .localimage-root .localimage-size-control .load-image-btn:disabled {
-                    background: #555; cursor: not-allowed; opacity: 0.7;
+                .localimage-root .localimage-size-control .preview-mode-toggle:hover {
+                    background: #555;
                 }
                 
                 .localimage-root .localimage-gallery { 
