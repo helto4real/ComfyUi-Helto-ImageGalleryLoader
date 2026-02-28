@@ -64,6 +64,7 @@ const LocalImageGalleryNode = {
                 availableSourceFolders: [], 
                 metadataFilter: "all",
                 sortOrder: "name",
+                recursive: false,
                 previewSize: 110,
                 previewMode: "thumbnail",
                 foldersRendered: false,
@@ -153,14 +154,15 @@ const LocalImageGalleryNode = {
                             <button class="refresh-btn" title="Refresh image list">🔄</button>
                         </div>
                          <div class="localimage-size-control">
-                             <span class="size-label size-label-small">🖼️</span>
-                             <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
-                             <span class="size-label size-label-large">🖼️</span>
-                             <button class="preview-mode-toggle" title="Toggle preview mode">🔍</button>
-                             <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
-                             <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
-                             <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
-                         </div>
+                              <span class="size-label size-label-small">🖼️</span>
+                              <input type="range" class="size-slider" min="50" max="400" value="110" title="Preview size">
+                              <span class="size-label size-label-large">🖼️</span>
+                              <button class="preview-mode-toggle" title="Toggle preview mode">🔍</button>
+                              <button class="recursive-toggle" title="Include subfolders">📂</button>
+                              <button class="folder-manager-btn" title="Manage source folders">📁 Folder Manager</button>
+                              <button class="load-image-btn" title="Load image from computer">📂 Load Image</button>
+                              <input type="file" class="file-input-hidden" accept="image/*" multiple style="display: none;">
+                          </div>
                         <div class="localimage-gallery">
                             <div class="localimage-gallery-viewport"></div>
                         </div>
@@ -189,6 +191,7 @@ const LocalImageGalleryNode = {
             els.sourceSelect = widgetContainer.querySelector(".source-folder-select");
             els.folderManagerBtn = widgetContainer.querySelector(".folder-manager-btn");
             els.previewModeToggle = widgetContainer.querySelector(".preview-mode-toggle");
+            els.recursiveToggle = widgetContainer.querySelector(".recursive-toggle");
 
             const cacheHeights = () => {
                 if (els.controls) state.cachedHeights.controls = els.controls.offsetHeight;
@@ -407,11 +410,11 @@ const LocalImageGalleryNode = {
             };
 
             // === API FUNCTIONS ===
-            const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name") => {
+            const getImages = async (page = 1, search = "", metadataFilter = "all", sortOrder = "name", recursive = false) => {
                 state.isLoading = true;
                 try {
                     const sourceEncoded = encodeURIComponent(state.currentSourceFolder || '');
-                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}&source=${sourceEncoded}`;
+                    const url = `/imagegallery/get_images?page=${page}&per_page=100&search=${encodeURIComponent(search)}&metadata=${encodeURIComponent(metadataFilter)}&sort=${encodeURIComponent(sortOrder)}&source=${sourceEncoded}&recursive=${recursive}`;
                     const response = await api.fetchApi(url);
                     const data = await response.json();
                     state.totalPages = data.total_pages || 1;
@@ -727,7 +730,8 @@ const LocalImageGalleryNode = {
                     pageToFetch, 
                     els.searchInput.value, 
                     state.metadataFilter, 
-                    state.sortOrder
+                    state.sortOrder,
+                    state.recursive
                 );
 
                 if (append) {
@@ -1032,6 +1036,18 @@ const LocalImageGalleryNode = {
                 renderVisibleCards();
             });
 
+            els.recursiveToggle.addEventListener("click", () => {
+                state.recursive = !state.recursive;
+                els.recursiveToggle.textContent = state.recursive ? "🔁" : "📂";
+                els.recursiveToggle.title = state.recursive ? "Exclude subfolders" : "Include subfolders";
+                
+                LocalImageGalleryNode.setUiState(node.id, node.properties.image_gallery_unique_id, { 
+                    recursive: state.recursive 
+                });
+                
+                fetchAndRender(false, true);
+            });
+
             let resizeRAF = null;
             
             const fitHeight = () => {
@@ -1080,6 +1096,7 @@ const LocalImageGalleryNode = {
                     selected_image_source: "",
                     metadata_filter: "all", 
                     sort_order: "name", 
+                    recursive: false,
                     preview_size: 110,
                     preview_mode: "thumbnail"
                 };
@@ -1112,6 +1129,9 @@ const LocalImageGalleryNode = {
                 // Handle preview mode
                 state.previewMode = node.properties.preview_mode || initialState.preview_mode || "thumbnail";
                 
+                // Handle recursive mode
+                state.recursive = initialState.recursive || false;
+                
                 if (state.currentSourceFolder) {
                     els.sourceSelect.value = state.currentSourceFolder;
                 }
@@ -1139,6 +1159,10 @@ const LocalImageGalleryNode = {
                 // Initialize preview mode toggle
                 els.previewModeToggle.textContent = state.previewMode === "full" ? "🖼️" : "🔍";
                 els.previewModeToggle.title = state.previewMode === "full" ? "Show thumbnail previews" : "Show full image previews";
+
+                // Initialize recursive toggle
+                els.recursiveToggle.textContent = state.recursive ? "🔁" : "📂";
+                els.recursiveToggle.title = state.recursive ? "Exclude subfolders" : "Include subfolders";
 
                 await fetchAndRender();
 
