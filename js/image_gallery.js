@@ -210,10 +210,15 @@ const LocalImageGalleryNode = {
                 const menu = document.createElement('div');
                 menu.className = 'localimage-context-menu';
                 menu.innerHTML = `
+                    <div class="localimage-context-menu-item preview-item" data-action="preview">
+                        <span class="icon">🔍</span>
+                        <span class="label">Preview Image</span>
+                    </div>
                     <div class="localimage-context-menu-item paste-item" data-action="paste">
                         <span class="icon">📋</span>
                         <span class="label">Paste Image</span>
                     </div>
+                    <div class="localimage-context-menu-separator"></div>
                     <div class="localimage-context-menu-item delete-item" data-action="delete">
                         <span class="icon">🗑️</span>
                         <span class="label">Delete Image</span>
@@ -235,6 +240,8 @@ const LocalImageGalleryNode = {
                         await deleteImage(imageData);
                     } else if (action === 'paste') {
                         await pasteImageFromClipboard();
+                    } else if (action === 'preview') {
+                        showPreviewModal(imageData);
                     }
                     
                     LocalImageGalleryNode.closeContextMenu();
@@ -267,6 +274,60 @@ const LocalImageGalleryNode = {
                     document.addEventListener('click', closeOnClickOutside);
                     document.addEventListener('contextmenu', closeOnClickOutside);
                 }, 0);
+            };
+
+            const showPreviewModal = (imageData) => {
+                const imageName = imageData.originalName || imageData.name;
+                const imageSource = imageData.source || state.currentSourceFolder;
+                
+                const filteredImages = state.availableImages.filter(img => 
+                    (img.original_name === imageName || img.name === imageName) && 
+                    (!imageSource || img.source === imageSource)
+                );
+                
+                if (filteredImages.length === 0) {
+                    console.error('Preview image not found in available images');
+                    return;
+                }
+                
+                const imgData = filteredImages[0];
+                const fullUrl = imgData.preview_url
+                    .replace('/thumb?', '/preview?')
+                    .replace(/&t=\d+/, '');
+                
+                const modal = document.createElement('div');
+                modal.className = 'localimage-preview-modal';
+                modal.innerHTML = `
+                    <div class="localimage-preview-backdrop"></div>
+                    <div class="localimage-preview-content">
+                        <div class="localimage-preview-header">
+                            <span class="localimage-preview-filename" title="${imageName}">${imageName}</span>
+                            <span class="localimage-preview-dimensions">${imgData.width || 0} × ${imgData.height || 0}</span>
+                            <button class="localimage-preview-close" title="Close (Esc)">×</button>
+                        </div>
+                        <div class="localimage-preview-image-container">
+                            <img src="${fullUrl}" alt="${imageName}">
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                const closeModal = () => {
+                    modal.remove();
+                    document.removeEventListener('keydown', handleEscape);
+                };
+                
+                const handleEscape = (e) => {
+                    if (e.key === 'Escape') {
+                        closeModal();
+                    }
+                };
+                
+                document.addEventListener('keydown', handleEscape);
+                
+                modal.querySelector('.localimage-preview-backdrop').addEventListener('click', closeModal);
+                modal.querySelector('.localimage-preview-close').addEventListener('click', closeModal);
             };
             
             const deleteImage = async (imageData) => {
@@ -693,6 +754,20 @@ const LocalImageGalleryNode = {
                 }
                 
                 updateSelection();
+            });
+
+            // DOUBLE-CLICK TO PREVIEW
+            els.viewport.addEventListener("dblclick", (e) => {
+                const card = e.target.closest(".localimage-image-card");
+                if (!card) return;
+                
+                const imageData = {
+                    name: card.dataset.imageName,
+                    originalName: card.dataset.originalName || card.dataset.imageName,
+                    source: card.dataset.imageSource || state.currentSourceFolder
+                };
+                
+                showPreviewModal(imageData);
             });
 
             // RIGHT-CLICK CONTEXT MENU
@@ -1303,6 +1378,81 @@ const LocalImageGalleryNode = {
                     height: 1px;
                     background: #444;
                     margin: 4px 8px;
+                }
+                
+                /* Preview Modal Styles */
+                .localimage-preview-modal {
+                    position: fixed;
+                    z-index: 1000000;
+                    inset: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .localimage-preview-backdrop {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.85);
+                    cursor: pointer;
+                }
+                .localimage-preview-content {
+                    position: relative;
+                    max-width: 90vw;
+                    max-height: 90vh;
+                    display: flex;
+                    flex-direction: column;
+                    background: #1e1e1e;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+                    overflow: hidden;
+                }
+                .localimage-preview-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 12px 16px;
+                    background: #252525;
+                    border-bottom: 1px solid #3a3a3a;
+                    flex-shrink: 0;
+                }
+                .localimage-preview-filename {
+                    flex-grow: 1;
+                    color: #00FFC9;
+                    font-weight: bold;
+                    font-size: 14px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .localimage-preview-dimensions {
+                    color: #888;
+                    font-size: 13px;
+                }
+                .localimage-preview-close {
+                    background: none;
+                    border: none;
+                    color: #888;
+                    font-size: 24px;
+                    cursor: pointer;
+                    padding: 0 8px;
+                    line-height: 1;
+                    transition: color 0.2s;
+                }
+                .localimage-preview-close:hover {
+                    color: #fff;
+                }
+                .localimage-preview-image-container {
+                    flex: 1;
+                    overflow: auto;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #111;
+                }
+                .localimage-preview-image-container img {
+                    max-width: 100%;
+                    max-height: calc(90vh - 60px);
+                    object-fit: contain;
                 }
                 
                 /* Existing styles */
